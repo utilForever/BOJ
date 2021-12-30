@@ -29,7 +29,7 @@ fn main() {
         queue.push(num);
 
         if !queue.is_empty() && queue.peek().unwrap() > &num {
-            ans += queue.peek().unwrap() - num;
+            ans += (queue.peek().unwrap() - num) as i64;
             queue.pop();
             queue.push(num);
         }

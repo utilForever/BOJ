@@ -1,5 +1,42 @@
 use io::Write;
-use std::{cell::RefCell, io, rc::Rc, str};
+use std::{io, str};
+use std::ops::{Deref, DerefMut};
+
+struct StaticCell<T: 'static + Sized> {
+    inner: &'static mut T,
+}
+
+impl<T> StaticCell<T> {
+    pub fn new(t: T) -> Self {
+        Self {
+            inner: Box::leak(Box::new(t)),
+        }
+    }
+}
+
+impl<T> Clone for StaticCell<T> {
+    fn clone(&self) -> Self {
+        unsafe {
+            Self {
+                inner: &mut *((self.inner as *const T) as *mut T),
+            }
+        }
+    }
+}
+
+impl<T> Deref for StaticCell<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        self.inner
+    }
+}
+
+impl<T> DerefMut for StaticCell<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.inner
+    }
+}
 
 pub struct UnsafeScanner<R> {
     reader: R,
@@ -36,42 +73,41 @@ impl<R: io::BufRead> UnsafeScanner<R> {
 #[derive(Clone)]
 struct Node {
     value: i32,
-    left: Option<Rc<RefCell<Node>>>,
-    right: Option<Rc<RefCell<Node>>>,
+    left: Option<StaticCell<Node>>,
+    right: Option<StaticCell<Node>>,
 }
 
 impl Node {
-    fn new(value: i32, left: Option<Rc<RefCell<Node>>>, right: Option<Rc<RefCell<Node>>>) -> Self {
+    fn new(value: i32, left: Option<StaticCell<Node>>, right: Option<StaticCell<Node>>) -> Self {
         Self { value, left, right }
     }
 
-    fn update(&self, x: i32, y: i32, pos: i32) -> Rc<RefCell<Node>> {
+    fn update(&self, x: i32, y: i32, pos: i32) -> StaticCell<Node> {
         if x <= pos && y >= pos {
             if x == y {
-                return Rc::new(RefCell::new(Node::new(self.value + 1, None, None)));
+                return StaticCell::new(Node::new(self.value + 1, None, None));
             }
 
             let mid = (x + y) / 2;
-            let left = self.left.as_ref().unwrap().borrow().update(x, mid, pos);
+            let left = self.left.as_ref().unwrap().update(x, mid, pos);
             let right = self
                 .right
                 .as_ref()
                 .unwrap()
-                .borrow()
                 .update(mid + 1, y, pos);
 
-            return Rc::new(RefCell::new(Node::new(
+            return StaticCell::new(Node::new(
                 self.value + 1,
                 Some(left),
                 Some(right),
-            )));
+            ));
         }
 
-        Rc::new(RefCell::new(self.clone()))
+        StaticCell::new(self.clone())
     }
 }
 
-fn query_xor(left: &Rc<RefCell<Node>>, right: &Rc<RefCell<Node>>, x: i32, y: i32, k: i32) -> i32 {
+fn query_xor(left: &StaticCell<Node>, right: &StaticCell<Node>, x: i32, y: i32, k: i32) -> i32 {
     if x == y {
         return x;
     }
@@ -79,12 +115,12 @@ fn query_xor(left: &Rc<RefCell<Node>>, right: &Rc<RefCell<Node>>, x: i32, y: i32
     let mid = (x + y) / 2;
 
     if (((y - x + 1) / 2) & k) != 0
-        && left.borrow().left.as_ref().unwrap().borrow().value
-            == right.borrow().left.as_ref().unwrap().borrow().value
+        && left.left.as_ref().unwrap().value
+            == right.left.as_ref().unwrap().value
     {
         return query_xor(
-            left.borrow().right.as_ref().unwrap(),
-            right.borrow().right.as_ref().unwrap(),
+            left.right.as_ref().unwrap(),
+            right.right.as_ref().unwrap(),
             mid + 1,
             y,
             k,
@@ -92,12 +128,12 @@ fn query_xor(left: &Rc<RefCell<Node>>, right: &Rc<RefCell<Node>>, x: i32, y: i32
     }
 
     if (((y - x + 1) / 2) & k) == 0
-        && left.borrow().right.as_ref().unwrap().borrow().value
-            != right.borrow().right.as_ref().unwrap().borrow().value
+        && left.right.as_ref().unwrap().value
+            != right.right.as_ref().unwrap().value
     {
         return query_xor(
-            left.borrow().right.as_ref().unwrap(),
-            right.borrow().right.as_ref().unwrap(),
+            left.right.as_ref().unwrap(),
+            right.right.as_ref().unwrap(),
             mid + 1,
             y,
             k,
@@ -105,43 +141,43 @@ fn query_xor(left: &Rc<RefCell<Node>>, right: &Rc<RefCell<Node>>, x: i32, y: i32
     }
 
     query_xor(
-        left.borrow().left.as_ref().unwrap(),
-        right.borrow().left.as_ref().unwrap(),
+        left.left.as_ref().unwrap(),
+        right.left.as_ref().unwrap(),
         x,
         mid,
         k,
     )
 }
 
-fn query_sum(p: &Rc<RefCell<Node>>, x: i32, y: i32, min: i32, max: i32) -> i32 {
+fn query_sum(p: &StaticCell<Node>, x: i32, y: i32, min: i32, max: i32) -> i32 {
     if y < min || x > max {
         return 0;
     }
 
     if x >= min && y <= max {
-        return p.borrow().value;
+        return p.value;
     }
 
     let mid = (x + y) / 2;
 
-    return query_sum(p.borrow().left.as_ref().unwrap(), x, mid, min, max)
-        + query_sum(p.borrow().right.as_ref().unwrap(), mid + 1, y, min, max);
+    return query_sum(p.left.as_ref().unwrap(), x, mid, min, max)
+        + query_sum(p.right.as_ref().unwrap(), mid + 1, y, min, max);
 }
 
-fn query_kth(left: &Rc<RefCell<Node>>, right: &Rc<RefCell<Node>>, x: i32, y: i32, k: i32) -> i32 {
+fn query_kth(left: &StaticCell<Node>, right: &StaticCell<Node>, x: i32, y: i32, k: i32) -> i32 {
     if x == y {
         return x;
     }
 
     let mid = (x + y) / 2;
 
-    if right.borrow().left.as_ref().unwrap().borrow().value
-        - left.borrow().left.as_ref().unwrap().borrow().value
+    if right.left.as_ref().unwrap().value
+        - left.left.as_ref().unwrap().value
         >= k
     {
         return query_kth(
-            left.borrow().left.as_ref().unwrap(),
-            right.borrow().left.as_ref().unwrap(),
+            left.left.as_ref().unwrap(),
+            right.left.as_ref().unwrap(),
             x,
             mid,
             k,
@@ -149,12 +185,12 @@ fn query_kth(left: &Rc<RefCell<Node>>, right: &Rc<RefCell<Node>>, x: i32, y: i32
     }
 
     query_kth(
-        left.borrow().right.as_ref().unwrap(),
-        right.borrow().right.as_ref().unwrap(),
+        left.right.as_ref().unwrap(),
+        right.right.as_ref().unwrap(),
         mid + 1,
         y,
-        k - (right.borrow().left.as_ref().unwrap().borrow().value
-            - left.borrow().left.as_ref().unwrap().borrow().value),
+        k - (right.left.as_ref().unwrap().value
+            - left.left.as_ref().unwrap().value),
     )
 }
 
@@ -167,9 +203,9 @@ fn main() {
     let mut segments = vec![None; 500_001];
     let mut num_elements = 0;
 
-    segments[0] = Some(Rc::new(RefCell::new(Node::new(0, None, None))));
-    segments[0].as_mut().unwrap().borrow_mut().left = segments[0].clone();
-    segments[0].as_mut().unwrap().borrow_mut().right = segments[0].clone();
+    segments[0] = Some(StaticCell::new(Node::new(0, None, None)));
+    segments[0].as_mut().unwrap().left = segments[0].clone();
+    segments[0].as_mut().unwrap().right = segments[0].clone();
 
     let m = scan.token::<usize>();
 
@@ -183,7 +219,6 @@ fn main() {
             let ret = segments[num_elements - 1]
                 .as_mut()
                 .unwrap()
-                .borrow()
                 .update(0, max_x - 1, x);
             segments[num_elements] = Some(ret);
         } else if cmd == 2 {

@@ -1,6 +1,6 @@
 use std::{collections::VecDeque, io};
 
-fn input_intergers() -> Vec<i64> {
+fn input_integers() -> Vec<i64> {
     let mut s = String::new();
 
     io::stdin().read_line(&mut s).unwrap();
@@ -53,7 +53,7 @@ fn process_bfs(visited: &mut Vec<bool>, n: usize, k: usize) -> (i64, i64) {
 }
 
 fn main() {
-    let nums = input_intergers();
+    let nums = input_integers();
     let (n, k) = (nums[0] as usize, nums[1] as usize);
 
     let mut visited = vec![false; 100_001];

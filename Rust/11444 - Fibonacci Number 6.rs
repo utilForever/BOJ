@@ -1,6 +1,6 @@
 use std::io;
 
-fn input_intergers() -> Vec<i64> {
+fn input_integers() -> Vec<i64> {
     let mut s = String::new();
 
     io::stdin().read_line(&mut s).unwrap();
@@ -50,7 +50,7 @@ fn get_fibonacci(n: i64) -> Vec<Vec<i64>> {
 }
 
 fn main() {
-    let n = input_intergers()[0];
+    let n = input_integers()[0];
 
     if n == 0 {
         println!("0");

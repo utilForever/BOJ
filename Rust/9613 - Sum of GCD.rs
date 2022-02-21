@@ -18,6 +18,14 @@ fn gcd(first: i32, second: i32) -> i32 {
     let mut max = first;
     let mut min = second;
 
+    if min == 0 && max == 0 {
+        return 0;
+    } else if min == 0 {
+        return max;
+    } else if max == 0 {
+        return min;
+    }
+
     if min > max {
         let val = max;
 

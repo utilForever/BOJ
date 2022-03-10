@@ -32,6 +32,7 @@ impl<R: io::BufRead> UnsafeScanner<R> {
         }
     }
 }
+
 fn main() {
     let (stdin, stdout) = (io::stdin(), io::stdout());
     let mut scan = UnsafeScanner::new(stdin.lock());

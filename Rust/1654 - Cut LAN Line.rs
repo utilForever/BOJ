@@ -33,6 +33,16 @@ impl<R: io::BufRead> UnsafeScanner<R> {
     }
 }
 
+fn check(lines: &Vec<usize>, lan_len: usize, minimum_lan_cnt: usize) -> bool {
+    let mut cnt = 0;
+
+    for i in 0..lines.len() {
+        cnt += lines[i] / lan_len;
+    }
+
+    cnt >= minimum_lan_cnt
+}
+
 fn main() {
     let (stdin, stdout) = (io::stdin(), io::stdout());
     let mut scan = UnsafeScanner::new(stdin.lock());

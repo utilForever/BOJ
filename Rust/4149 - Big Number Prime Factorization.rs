@@ -114,7 +114,7 @@ fn is_prime(x: i64) -> bool {
             return true;
         }
 
-        if x >= 40 && process_miller_rabin(x, val) {
+        if process_miller_rabin(x, val) {
             return false;
         }
     }

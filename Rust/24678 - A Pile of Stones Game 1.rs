@@ -47,26 +47,21 @@ fn main() {
             scan.token::<usize>(),
         );
 
-        let mut arr = [x, y, z];
-        arr.sort();
+        let mut odd_cnt = 0;
+        if x % 2 == 1 {
+            odd_cnt += 1;
+        }
+        if y % 2 == 1 {
+            odd_cnt += 1;
+        }
+        if z % 2 == 1 {
+            odd_cnt += 1;
+        }
 
-        if arr[0] == 1 && arr[1] == 1 {
-            writeln!(out, "B").unwrap();
-        } else if arr[0] == 1 {
-            if arr[1] % 2 == 0 && arr[2] % 2 == 0 {
-                writeln!(out, "R").unwrap();
-            } else {
-                writeln!(out, "B").unwrap();
-            }
+        if odd_cnt <= 1 {
+            writeln!(out, "R").unwrap();
         } else {
-            if (arr[0] % 2 == 0 && arr[1] % 2 == 0)
-                || (arr[0] % 2 == 0 && arr[2] % 2 == 0)
-                || (arr[1] % 2 == 0 && arr[2] % 2 == 0)
-            {
-                writeln!(out, "R").unwrap();
-            } else {
-                writeln!(out, "B").unwrap();
-            }
+            writeln!(out, "B").unwrap();
         }
     }
 }

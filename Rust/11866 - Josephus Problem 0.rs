@@ -39,41 +39,29 @@ fn main() {
     let mut out = io::BufWriter::new(stdout.lock());
 
     let (n, k) = (scan.token::<usize>(), scan.token::<usize>());
-    let mut nums = vec![0; n + 1];
+    let mut nums: Vec<usize> = (1..n + 1).collect();
+    let mut list = Vec::new();
+    let mut idx = 0;
 
-    for i in 0..n {
-        nums[i] = i + 1;
+    for _ in 1..n + 1 {
+        let size = nums.len();
+        idx += k - 1;
+
+        while idx >= size {
+            idx -= size;
+        }
+
+        let num = nums.remove(idx);
+        list.push(num);
     }
 
     write!(out, "<").unwrap();
-
-    let (mut idx, mut cnt, mut total_cnt) = (0, 0, 0);
-
-    while total_cnt < n {
-        if nums[idx] == 0 {
-            idx += 1;
+    for num in list.iter() {
+        if num == list.last().unwrap() {
+            write!(out, "{}", num).unwrap();
         } else {
-            cnt += 1;
-
-            if cnt == k {
-                write!(out, "{}", nums[idx]).unwrap();
-
-                nums[idx] = 0;
-                cnt = 0;
-                total_cnt += 1;
-
-                if total_cnt < n {
-                    write!(out, ", ").unwrap();
-                }
-            }
-
-            idx += 1;
-        }
-
-        if idx == n {
-            idx = 0;
+            write!(out, "{}, ", num).unwrap();
         }
     }
-
     write!(out, ">").unwrap();
 }

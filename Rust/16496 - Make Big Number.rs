@@ -41,7 +41,7 @@ fn main() {
             let mut str2 = nums[idx].clone();
             str2.push_str(&nums[j]);
 
-            if str1.parse::<i64>().unwrap() > str2.parse::<i64>().unwrap() {
+            if str1.parse::<u128>().unwrap() > str2.parse::<u128>().unwrap() {
                 idx = j;
             }
         }

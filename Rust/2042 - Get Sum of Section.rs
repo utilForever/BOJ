@@ -74,11 +74,11 @@ fn main() {
     }
 
     for _ in 1..=(m + k) {
-        let (a, b, c): (usize, usize, usize) = (scan.token(), scan.token(), scan.token());
+        let (a, b, c): (usize, usize, i64) = (scan.token(), scan.token(), scan.token());
 
         if a == 1 {
-            let diff = c as i64 - arr[b];
-            arr[b] = c as i64;
+            let diff = c - arr[b];
+            arr[b] = c;
 
             update(&mut tree, b, diff);
         } else {

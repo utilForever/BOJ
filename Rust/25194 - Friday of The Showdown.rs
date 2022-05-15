@@ -33,41 +33,43 @@ impl<R: io::BufRead> UnsafeScanner<R> {
     }
 }
 
+fn can_health(week: &Vec<usize>, idx: usize, sum: usize) -> bool {
+    if sum == 4 {
+        return true;
+    }
+
+    if idx >= 7 {
+        return false;
+    }
+
+    let num = week[idx];
+
+    for i in 0..=num {
+        if can_health(&week, idx + 1, (sum + idx * i) % 7) {
+            return true;
+        }
+    }
+
+    false
+}
+
 fn main() {
     let (stdin, stdout) = (io::stdin(), io::stdout());
     let mut scan = UnsafeScanner::new(stdin.lock());
     let mut out = io::BufWriter::new(stdout.lock());
 
     let n = scan.token::<usize>();
-    let mut works = vec![0; n];
-    let mut sum_works = vec![0; n + 1];
+    let mut week = vec![0_usize; 7];
 
-    for i in 0..n {
-        works[i] = scan.token::<usize>();
+    for _ in 0..n {
+        let work = scan.token::<usize>();
+        week[work % 7] += 1;
     }
 
-    works.sort();
-
-    for i in 1..=n {
-        sum_works[i] = sum_works[i - 1] + works[i - 1];
-    }
-
-    let mut can_health = false;
-
-    for i in 0..n + 1 {
-        if can_health {
-            break;
-        }
-
-        for j in 0..i {
-            let sum = sum_works[i] - sum_works[j];
-
-            if sum != 0 && sum % 7 == 4 {
-                can_health = true;
-                break;
-            }
-        }
-    }
-
-    writeln!(out, "{}", if can_health { "YES" } else { "NO" }).unwrap();
+    writeln!(
+        out,
+        "{}",
+        if can_health(&week, 1, 0) { "YES" } else { "NO" }
+    )
+    .unwrap();
 }

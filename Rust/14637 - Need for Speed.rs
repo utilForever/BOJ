@@ -1,0 +1,71 @@
+use io::Write;
+use std::{io, str};
+
+pub struct UnsafeScanner<R> {
+    reader: R,
+    buf_str: Vec<u8>,
+    buf_iter: str::SplitAsciiWhitespace<'static>,
+}
+
+impl<R: io::BufRead> UnsafeScanner<R> {
+    pub fn new(reader: R) -> Self {
+        Self {
+            reader,
+            buf_str: vec![],
+            buf_iter: "".split_ascii_whitespace(),
+        }
+    }
+
+    pub fn token<T: str::FromStr>(&mut self) -> T {
+        loop {
+            if let Some(token) = self.buf_iter.next() {
+                return token.parse().ok().expect("Failed parse");
+            }
+            self.buf_str.clear();
+            self.reader
+                .read_until(b'\n', &mut self.buf_str)
+                .expect("Failed read");
+            self.buf_iter = unsafe {
+                let slice = str::from_utf8_unchecked(&self.buf_str);
+                std::mem::transmute(slice.split_ascii_whitespace())
+            }
+        }
+    }
+}
+
+fn main() {
+    let (stdin, stdout) = (io::stdin(), io::stdout());
+    let mut scan = UnsafeScanner::new(stdin.lock());
+    let mut out = io::BufWriter::new(stdout.lock());
+
+    let (n, t) = (scan.token::<usize>(), scan.token::<usize>());
+    let mut dist = vec![0.0; n];
+    let mut speed = vec![0.0; n];
+
+    let mut miles_min: f64 = -1_000_000_000.0;
+    let mut miles_max: f64 = 1_000_000_000.0;
+
+    for i in 0..n {
+        dist[i] = scan.token::<usize>() as f64;
+        speed[i] = scan.token::<i64>() as f64;
+
+        miles_min = miles_min.max(-speed[i]);
+    }
+
+    while miles_max - miles_min > 0.000_000_001 {
+        let mid = (miles_min + miles_max) / 2.0;
+        let mut time = 0.0;
+
+        for i in 0..n {
+            time += dist[i] / (speed[i] + mid);
+        }
+
+        if time > t as f64 {
+            miles_min = mid;
+        } else {
+            miles_max = mid;
+        }
+    }
+
+    writeln!(out, "{}", (miles_min + miles_max) / 2.0).unwrap();
+}

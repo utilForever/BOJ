@@ -80,7 +80,7 @@ impl SegmentTree {
     }
 
     pub fn update(&mut self, val: i64, is_red: bool) {
-        self.update_internal(val, is_red, 1, 1, self.size);
+        self.update_internal(val, is_red, 1, 0, self.size - 1);
     }
 
     fn update_internal(

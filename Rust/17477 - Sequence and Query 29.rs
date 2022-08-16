@@ -150,6 +150,62 @@ impl LazySegmentTree {
         }
     }
 
+    fn process_add(&mut self, node: usize, val: i64) {
+        self.data[node].add += val;
+        self.data[node].max_first += val;
+        self.data[node].min_first += val;
+
+        if self.data[node].max_second != MIN {
+            self.data[node].max_second += val;
+        }
+        if self.data[node].min_second != MAX {
+            self.data[node].min_second += val;
+        }
+    }
+
+    fn process_max(&mut self, node: usize, start: usize, end: usize, val: i64) {
+        self.data[node].max_first = self.data[node].max_first.max(val);
+        self.data[node].min_first = val;
+
+        if self.data[node].max_first == self.data[node].min_first {
+            self.data[node].max_second = MIN;
+            self.data[node].min_second = MAX;
+            self.data[node].num_max_first = (end - start + 1) as i64;
+            self.data[node].num_min_first = (end - start + 1) as i64;
+        } else {
+            self.data[node].max_second = self.data[node].max_second.max(val);
+        }
+    }
+
+    fn process_min(&mut self, node: usize, start: usize, end: usize, val: i64) {
+        self.data[node].max_first = val;
+        self.data[node].min_first = self.data[node].min_first.min(val);
+
+        if self.data[node].max_first == self.data[node].min_first {
+            self.data[node].max_second = MIN;
+            self.data[node].min_second = MAX;
+            self.data[node].num_max_first = (end - start + 1) as i64;
+            self.data[node].num_min_first = (end - start + 1) as i64;
+        } else {
+            self.data[node].min_second = self.data[node].min_second.min(val);
+        }
+    }
+
+    fn process_count(&mut self, node: usize, new_node: usize, start: usize, end: usize) {
+        if self.data[new_node].max_first == self.data[node].max_first {
+            self.data[new_node].b += self.data[new_node].num_max_first * self.lazy_max[node];
+            self.lazy_max[new_node] += self.lazy_max[node];
+        }
+
+        if self.data[new_node].min_first == self.data[node].min_first {
+            self.data[new_node].b += self.data[new_node].num_min_first * self.lazy_min[node];
+            self.lazy_min[new_node] += self.lazy_min[node];
+        }
+
+        self.data[new_node].b += self.lazy_add[node] * (end - start + 1) as i64;
+        self.lazy_add[new_node] += self.lazy_add[node];
+    }
+
     fn propagate(&mut self, node: usize, start: usize, end: usize) {
         if start == end {
             return;
@@ -158,137 +214,38 @@ impl LazySegmentTree {
         let mid = (start + end) / 2;
 
         if self.data[node].add != 0 {
-            self.data[node * 2].add += self.data[node].add;
-            self.data[node * 2].max_first += self.data[node].add;
-            self.data[node * 2].min_first += self.data[node].add;
-
-            if self.data[node * 2].max_second != MIN {
-                self.data[node * 2].max_second += self.data[node].add;
-            }
-            if self.data[node * 2].min_second != MAX {
-                self.data[node * 2].min_second += self.data[node].add;
-            }
-
-            self.data[node * 2 + 1].add += self.data[node].add;
-            self.data[node * 2 + 1].max_first += self.data[node].add;
-            self.data[node * 2 + 1].min_first += self.data[node].add;
-
-            if self.data[node * 2 + 1].max_second != MIN {
-                self.data[node * 2 + 1].max_second += self.data[node].add;
-            }
-            if self.data[node * 2 + 1].min_second != MAX {
-                self.data[node * 2 + 1].min_second += self.data[node].add;
-            }
-
+            self.process_add(node * 2, self.data[node].add);
+            self.process_add(node * 2 + 1, self.data[node].add);
             self.data[node].add = 0;
         }
 
         if self.data[node].max_first < self.data[node * 2].max_first
             && self.data[node].max_first > self.data[node * 2].max_second
         {
-            self.data[node * 2].max_first = self.data[node].max_first;
-            self.data[node * 2].min_first =
-                self.data[node * 2].min_first.min(self.data[node].max_first);
-
-            if self.data[node * 2].max_first == self.data[node * 2].min_first {
-                self.data[node * 2].max_second = MIN;
-                self.data[node * 2].min_second = MAX;
-                self.data[node * 2].num_max_first = (mid - start + 1) as i64;
-                self.data[node * 2].num_min_first = (mid - start + 1) as i64;
-            } else {
-                self.data[node * 2].min_second = self.data[node * 2]
-                    .min_second
-                    .min(self.data[node].max_first);
-            }
+            self.process_min(node * 2, start, mid, self.data[node].max_first);
         }
 
         if self.data[node].max_first < self.data[node * 2 + 1].max_first
             && self.data[node].max_first > self.data[node * 2 + 1].max_second
         {
-            self.data[node * 2 + 1].max_first = self.data[node].max_first;
-            self.data[node * 2 + 1].min_first = self.data[node * 2 + 1]
-                .min_first
-                .min(self.data[node].max_first);
-
-            if self.data[node * 2 + 1].max_first == self.data[node * 2 + 1].min_first {
-                self.data[node * 2 + 1].max_second = MIN;
-                self.data[node * 2 + 1].min_second = MAX;
-                self.data[node * 2 + 1].num_max_first = (end - (mid + 1) + 1) as i64;
-                self.data[node * 2 + 1].num_min_first = (end - (mid + 1) + 1) as i64;
-            } else {
-                self.data[node * 2 + 1].min_second = self.data[node * 2 + 1]
-                    .min_second
-                    .min(self.data[node].max_first);
-            }
+            self.process_min(node * 2 + 1, mid + 1, end, self.data[node].max_first);
         }
 
         if self.data[node].min_first > self.data[node * 2].min_first
             && self.data[node].min_first < self.data[node * 2].min_second
         {
-            self.data[node * 2].max_first =
-                self.data[node * 2].max_first.max(self.data[node].min_first);
-            self.data[node * 2].min_first = self.data[node].min_first;
-
-            if self.data[node * 2].max_first == self.data[node * 2].min_first {
-                self.data[node * 2].max_second = MIN;
-                self.data[node * 2].min_second = MAX;
-                self.data[node * 2].num_max_first = (mid - start + 1) as i64;
-                self.data[node * 2].num_min_first = (mid - start + 1) as i64;
-            } else {
-                self.data[node * 2].max_second = self.data[node * 2]
-                    .max_second
-                    .max(self.data[node].min_first);
-            }
+            self.process_max(node * 2, start, mid, self.data[node].min_first);
         }
 
         if self.data[node].min_first > self.data[node * 2 + 1].min_first
             && self.data[node].min_first < self.data[node * 2 + 1].min_second
         {
-            self.data[node * 2 + 1].max_first = self.data[node * 2 + 1]
-                .max_first
-                .max(self.data[node].min_first);
-            self.data[node * 2 + 1].min_first = self.data[node].min_first;
-
-            if self.data[node * 2 + 1].max_first == self.data[node * 2 + 1].min_first {
-                self.data[node * 2 + 1].max_second = MIN;
-                self.data[node * 2 + 1].min_second = MAX;
-                self.data[node * 2 + 1].num_max_first = (end - (mid + 1) + 1) as i64;
-                self.data[node * 2 + 1].num_min_first = (end - (mid + 1) + 1) as i64;
-            } else {
-                self.data[node * 2 + 1].max_second = self.data[node * 2 + 1]
-                    .max_second
-                    .max(self.data[node].min_first);
-            }
+            self.process_max(node * 2 + 1, mid + 1, end, self.data[node].min_first);
         }
 
         if self.lazy_add[node] != 0 || self.lazy_max[node] != 0 || self.lazy_min[node] != 0 {
-            if self.data[node * 2].max_first == self.data[node].max_first {
-                self.data[node * 2].b += self.data[node * 2].num_max_first * self.lazy_max[node];
-                self.lazy_max[node * 2] += self.lazy_max[node];
-            }
-
-            if self.data[node * 2].min_first == self.data[node].min_first {
-                self.data[node * 2].b += self.data[node * 2].num_min_first * self.lazy_min[node];
-                self.lazy_min[node * 2] += self.lazy_min[node];
-            }
-
-            self.data[node * 2].b += self.lazy_add[node] * (mid - start + 1) as i64;
-            self.lazy_add[node * 2] += self.lazy_add[node];
-
-            if self.data[node * 2 + 1].max_first == self.data[node].max_first {
-                self.data[node * 2 + 1].b +=
-                    self.data[node * 2 + 1].num_max_first * self.lazy_max[node];
-                self.lazy_max[node * 2 + 1] += self.lazy_max[node];
-            }
-
-            if self.data[node * 2 + 1].min_first == self.data[node].min_first {
-                self.data[node * 2 + 1].b +=
-                    self.data[node * 2 + 1].num_min_first * self.lazy_min[node];
-                self.lazy_min[node * 2 + 1] += self.lazy_min[node];
-            }
-
-            self.data[node * 2 + 1].b += self.lazy_add[node] * (end - (mid + 1) + 1) as i64;
-            self.lazy_add[node * 2 + 1] += self.lazy_add[node];
+            self.process_count(node, node * 2, start, mid);
+            self.process_count(node, node * 2 + 1, mid + 1, end);
 
             self.lazy_add[node] = 0;
             self.lazy_max[node] = 0;
@@ -314,16 +271,7 @@ impl LazySegmentTree {
         }
 
         if start <= node_start && node_end <= end {
-            self.data[node].add += val;
-            self.data[node].max_first += val;
-            self.data[node].min_first += val;
-
-            if self.data[node].max_second != MIN {
-                self.data[node].max_second += val;
-            }
-            if self.data[node].min_second != MAX {
-                self.data[node].min_second += val;
-            }
+            self.process_add(node, val);
 
             self.data[node].b += (node_end - node_start + 1) as i64;
             self.lazy_add[node] += 1;
@@ -357,17 +305,7 @@ impl LazySegmentTree {
         }
 
         if start <= node_start && node_end <= end && self.data[node].min_second > val {
-            self.data[node].max_first = self.data[node].max_first.max(val);
-            self.data[node].min_first = val;
-
-            if self.data[node].max_first == self.data[node].min_first {
-                self.data[node].max_second = MIN;
-                self.data[node].min_second = MAX;
-                self.data[node].num_max_first = (node_end - node_start + 1) as i64;
-                self.data[node].num_min_first = (node_end - node_start + 1) as i64;
-            } else {
-                self.data[node].max_second = self.data[node].max_second.max(val);
-            }
+            self.process_max(node, node_start, node_end, val);
 
             self.data[node].b += self.data[node].num_min_first;
             self.lazy_min[node] += 1;
@@ -401,17 +339,7 @@ impl LazySegmentTree {
         }
 
         if start <= node_start && node_end <= end && self.data[node].max_second < val {
-            self.data[node].max_first = val;
-            self.data[node].min_first = self.data[node].min_first.min(val);
-
-            if self.data[node].max_first == self.data[node].min_first {
-                self.data[node].max_second = MIN;
-                self.data[node].min_second = MAX;
-                self.data[node].num_max_first = (node_end - node_start + 1) as i64;
-                self.data[node].num_min_first = (node_end - node_start + 1) as i64;
-            } else {
-                self.data[node].min_second = self.data[node].min_second.min(val);
-            }
+            self.process_min(node, node_start, node_end, val);
 
             self.data[node].b += self.data[node].num_max_first;
             self.lazy_max[node] += 1;

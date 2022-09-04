@@ -69,8 +69,15 @@ impl<K: Ord, V: Clone> Node<K, V> {
         }
     }
 
-    fn splay_type(&self) -> Option<SplayType> {
-        if self.parent()?.is_root() {
+    fn splay_type(&self, g: Option<&Node<K, V>>) -> Option<SplayType> {
+        if (self.parent().is_none() && g.is_none())
+            || (self.parent.is_some()
+                && g.is_some()
+                && unsafe {
+                    mem::transmute::<*mut Self, *const Self>(self.parent.unwrap().as_ptr())
+                        == g.unwrap()
+                })
+        {
             Some(SplayType::Zig)
         } else if (self.is_left() && self.parent()?.is_left())
             || (self.is_right() && self.parent()?.is_right())
@@ -163,6 +170,11 @@ impl<K: Ord, V: Clone> Node<K, V> {
         };
         let left_ptr = right.left;
 
+        // if let Some(parent) = self.parent_mut() {
+        //     parent.push();
+        // }
+        // self.push();
+
         right.parent = parent_ptr;
         right.left = Some(self_ptr);
 
@@ -178,15 +190,15 @@ impl<K: Ord, V: Clone> Node<K, V> {
 
         self.parent = right_ptr;
         self.right = left_ptr;
-        self.right_mut().map(|mut right| {
-            right.parent = Some(self_ptr);
-            right
-        });
+        // self.right_mut().map(|mut right| {
+        //     right.parent = Some(self_ptr);
+        //     right
+        // });
 
-        if let Some(parent) = self.parent_mut() {
-            parent.update();
-        }
-        self.update();
+        // if let Some(parent) = self.parent_mut() {
+        //     parent.update();
+        // }
+        // self.update();
     }
 
     fn rotate_right(&mut self) {
@@ -214,30 +226,36 @@ impl<K: Ord, V: Clone> Node<K, V> {
 
         self.parent = left_ptr;
         self.left = right_ptr;
-        self.left_mut().map(|mut left| {
-            left.parent = Some(self_ptr);
-            left
-        });
+        // self.left_mut().map(|mut left| {
+        //     left.parent = Some(self_ptr);
+        //     left
+        // });
 
-        if let Some(parent) = self.parent_mut() {
-            parent.update();
-        }
-        self.update();
+        // if let Some(parent) = self.parent_mut() {
+        //     parent.update();
+        // }
+        // self.update();
     }
 
-    pub fn splay(&mut self) -> Option<NonNull<Node<K, V>>> {
+    pub fn splay(&mut self, g: Option<&Node<K, V>>) -> Option<NonNull<Node<K, V>>> {
         loop {
-            if let Some(new_root) = self.splay_internal() {
+            let ret = self.splay_internal(g);
+
+            if ret.is_none() && g.is_none() {
+                return Some(self.into());
+            }
+
+            if let Some(new_root) = ret {
                 return Some(new_root);
             }
         }
     }
 
-    fn splay_internal(&mut self) -> Option<NonNull<Node<K, V>>> {
+    fn splay_internal(&mut self, g: Option<&Node<K, V>>) -> Option<NonNull<Node<K, V>>> {
         let self_ptr = self.into();
         let is_left = self.is_left();
 
-        if let Some(splay_type) = self.splay_type() {
+        if let Some(splay_type) = self.splay_type(g) {
             match splay_type {
                 SplayType::Zig => {
                     self.parent_mut().map(|p| {
@@ -337,13 +355,15 @@ impl<K: Ord, V: Clone> Node<K, V> {
 
     pub fn merge(&mut self, right: &mut Self) -> Option<NonNull<Node<K, V>>> {
         let left_max = self.find_max();
-        let res = left_max.splay();
+        let ret = left_max.splay(None);
 
-        right.parent = res;
+        right.parent = ret;
         left_max.right = Some(right.into());
 
-        res
+        ret
     }
+
+    pub fn push(&mut self) {}
 
     pub fn update(&mut self) {
         self.cnt = 1;
@@ -536,7 +556,7 @@ impl<K: Ord, V: Clone> SplayTree<K, V> {
                 Ordering::Less => cur_node.left_mut(),
                 Ordering::Equal => {
                     is_found = true;
-                    self.root = cur_node.splay();
+                    self.root = cur_node.splay(None);
                     None
                 }
                 Ordering::Greater => cur_node.right_mut(),
@@ -564,7 +584,7 @@ impl<K: Ord, V: Clone> SplayTree<K, V> {
     ) -> Option<&'a mut Node<K, V>> {
         if let Some(parent) = maybe_parent {
             let node = parent.insert_child(key, value)?;
-            self.root = node.splay();
+            self.root = node.splay(None);
             self.length += 1;
             Some(node)
         } else if self.root.is_none() {
@@ -628,24 +648,43 @@ impl<K: Ord, V: Clone> SplayTree<K, V> {
                 k -= cur_node.left().unwrap().cnt;
             }
 
+            if k == 0 {
+                break;
+            }
+
             k -= 1;
 
-            if k == 0 {
+            if cur_node.right().is_some() {
+                cur_node = cur_node.right_mut().unwrap();
+            } else {
                 break;
             }
         }
 
-        cur_node.splay();
+        cur_node.splay(None);
     }
 
-    pub fn gather(&mut self, start: usize, end: usize) -> &Node<K, V> {
+    pub fn flip(&mut self, start: usize, end: usize) {
+        let ret = self.gather(start, end);
+        ret.is_flip = !ret.is_flip;
+    }
+
+    pub fn gather(&mut self, start: usize, end: usize) -> &mut Node<K, V> {
         self.find_kth(end + 1);
-        let tmp = self.root_mut().unwrap();
+        let tmp_ptr: *const Node<K, V> = self.root_mut().unwrap();
         self.find_kth(start - 1);
 
-        tmp.splay();
+        unsafe {
+            let tmp = &mut *mem::transmute::<*const Node<K, V>, *mut Node<K, V>>(tmp_ptr);
+            tmp.splay(Some(self.root_mut().unwrap()));
+        }
 
-        self.root().unwrap().right().unwrap().left().unwrap()
+        self.root_mut()
+            .unwrap()
+            .right_mut()
+            .unwrap()
+            .left_mut()
+            .unwrap()
     }
 
     pub fn shift(&mut self, start: usize, end: usize, offset: usize) {}
@@ -667,15 +706,16 @@ fn main() {
         let num = scan.token::<i64>();
 
         if num == 1 {
-            let (l, r) = (scan.token::<i64>(), scan.token::<i64>());
+            let (l, r) = (scan.token::<usize>(), scan.token::<usize>());
+            splay_tree.flip(l, r);
+            let t = splay_tree.gather(l, r);
+            writeln!(out, "{} {} {}", t.min, t.max, t.sum).unwrap();
         } else if num == 2 {
             let (l, r, x) = (
                 scan.token::<usize>(),
                 scan.token::<usize>(),
                 scan.token::<usize>(),
             );
-            let t = splay_tree.gather(l, r);
-            writeln!(out, "{} {} {}", t.min, t.max, t.sum).unwrap();
             splay_tree.shift(l, r, x);
         } else if num == 3 {
             let i = scan.token::<i64>();

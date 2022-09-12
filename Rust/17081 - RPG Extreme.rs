@@ -1,5 +1,5 @@
 use io::Write;
-use std::{collections::HashMap, io, str};
+use std::{cmp, collections::HashMap, io, str};
 
 pub struct UnsafeScanner<R> {
     reader: R,
@@ -101,14 +101,14 @@ impl Monster {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum ItemType {
     Weapon(i64),
     Armor(i64),
     Accessory(String),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Item {
     pub row: usize,
     pub column: usize,
@@ -125,43 +125,206 @@ impl Item {
     }
 }
 
-fn pick_item_box(player: &mut Player, items: &Vec<Item>) -> Result<(), String> {
+fn pick_item_box(player: &mut Player, items: &Vec<Item>) {
     let item = items
         .iter()
         .find(|item| item.row == player.row && item.column == player.column)
-        .ok_or("No item found")?;
+        .unwrap();
 
     match &item.equip_type {
-        ItemType::Weapon(attack) => {
-            if let Some(weapon) = &player.weapon {
-                if weapon.equip_type == ItemType::Weapon(*attack) {
-                    return Err("You already have this weapon".to_string());
-                }
-            }
-
+        ItemType::Weapon(_) => {
             player.weapon = Some(item.clone());
-            player.attack += attack;
         }
-        ItemType::Armor(defense) => {
-            if let Some(armor) = &player.armor {
-                if armor.equip_type == ItemType::Armor(*defense) {
-                    return Err("You already have this armor".to_string());
-                }
-            }
-
+        ItemType::Armor(_) => {
             player.armor = Some(item.clone());
-            player.defense += defense;
         }
         ItemType::Accessory(name) => {
-            if player.accessory.contains_key(name) {
-                return Err("You already have this accessory".to_string());
+            if player.accessory.len() < 4 && !player.accessory.contains_key(name) {
+                player.accessory.insert(name.clone(), item.clone());
             }
-
-            player.accessory.insert(name.clone(), item.clone());
         }
     }
+}
 
-    Ok(())
+fn take_damage_by_spike(player: &mut Player) {
+    let spike_damage = if player.accessory.contains_key("DX") {
+        1
+    } else {
+        5
+    };
+
+    player.cur_health -= spike_damage;
+}
+
+fn battle_with_monster(player: &mut Player, monster: &mut Monster) {
+    let attack = player.attack
+        + player.weapon.as_ref().map_or(0, |item| {
+            if let ItemType::Weapon(weapon) = &item.equip_type {
+                *weapon
+            } else {
+                0
+            }
+        });
+    let defense = player.defense
+        + player.armor.as_ref().map_or(0, |item| {
+            if let ItemType::Armor(armor) = &item.equip_type {
+                *armor
+            } else {
+                0
+            }
+        });
+
+    let mut is_first_turn = true;
+    let mut is_player_turn = true;
+
+    loop {
+        if is_player_turn {
+            let damage = if is_first_turn {
+                if player.accessory.contains_key("CO") {
+                    if player.accessory.contains_key("DX") {
+                        cmp::max(1, attack * 3 - monster.defense)
+                    } else {
+                        cmp::max(1, attack * 2 - monster.defense)
+                    }
+                } else {
+                    cmp::max(1, attack - monster.defense)
+                }
+            } else {
+                cmp::max(1, attack - monster.defense)
+            };
+
+            monster.cur_health -= damage;
+        } else {
+            let damage = cmp::max(1, monster.attack - defense);
+
+            player.cur_health -= damage;
+        }
+
+        if player.cur_health <= 0 {
+            break;
+        } else if monster.cur_health <= 0 {
+            let experience = if player.accessory.contains_key("EX") {
+                (monster.experience as f64 * 1.2) as i64
+            } else {
+                monster.experience
+            };
+
+            player.experience += experience;
+
+            if player.experience >= player.level * 5 {
+                player.level += 1;
+                player.attack += 2;
+                player.defense += 2;
+                player.max_health += 5;
+                player.cur_health = player.max_health;
+                player.experience = 0;
+            }
+
+            if player.accessory.contains_key("HR") {
+                player.cur_health = cmp::min(player.max_health, player.cur_health + 3);
+            }
+
+            break;
+        }
+
+        if is_first_turn {
+            is_first_turn = false;
+        }
+
+        is_player_turn = !is_player_turn;
+    }
+}
+
+fn battle_with_boss(player: &mut Player, boss: &mut Monster) {
+    if player.accessory.contains_key("HU") {
+        player.cur_health = player.max_health;
+    }
+
+    let attack = player.attack
+        + player.weapon.as_ref().map_or(0, |item| {
+            if let ItemType::Weapon(weapon) = &item.equip_type {
+                *weapon
+            } else {
+                0
+            }
+        });
+    let defense = player.defense
+        + player.armor.as_ref().map_or(0, |item| {
+            if let ItemType::Armor(armor) = &item.equip_type {
+                *armor
+            } else {
+                0
+            }
+        });
+
+    let mut is_first_player_turn = true;
+    let mut is_first_boss_turn = true;
+    let mut is_player_turn = true;
+
+    loop {
+        if is_player_turn {
+            let damage = if is_first_player_turn {
+                if player.accessory.contains_key("CO") {
+                    if player.accessory.contains_key("DX") {
+                        cmp::max(1, attack * 3 - boss.defense)
+                    } else {
+                        cmp::max(1, attack * 2 - boss.defense)
+                    }
+                } else {
+                    cmp::max(1, attack - boss.defense)
+                }
+            } else {
+                cmp::max(1, attack - boss.defense)
+            };
+
+            boss.cur_health -= damage;
+
+            if is_first_player_turn {
+                is_first_player_turn = false;
+            }
+        } else {
+            let damage = if is_first_boss_turn && player.accessory.contains_key("HU") {
+                0
+            } else {
+                cmp::max(1, boss.attack - defense)
+            };
+
+            player.cur_health -= damage;
+
+            if is_first_boss_turn {
+                is_first_boss_turn = false;
+            }
+        }
+
+        if player.cur_health <= 0 {
+            break;
+        } else if boss.cur_health <= 0 {
+            let experience = if player.accessory.contains_key("EX") {
+                (boss.experience as f64 * 1.2) as i64
+            } else {
+                boss.experience
+            };
+
+            player.experience += experience;
+
+            if player.experience >= player.level * 5 {
+                player.level += 1;
+                player.attack += 2;
+                player.defense += 2;
+                player.max_health += 5;
+                player.cur_health = player.max_health;
+                player.experience = 0;
+            }
+
+            if player.accessory.contains_key("HR") {
+                player.cur_health = cmp::min(player.max_health, player.cur_health + 3);
+            }
+
+            break;
+        }
+
+        is_player_turn = !is_player_turn;
+    }
 }
 
 fn main() {
@@ -172,6 +335,7 @@ fn main() {
     let (n, m) = (scan.token::<usize>(), scan.token::<usize>());
     let mut grid = vec![vec![' '; m + 1]; n + 1];
     let mut player = Player::new();
+    let mut init_position_player = (0, 0);
     let mut num_monsters = 0;
     let mut num_items = 0;
 
@@ -189,6 +353,7 @@ fn main() {
             } else if c == '@' {
                 player.row = i;
                 player.column = j + 1;
+                init_position_player = (i, j + 1);
             }
         }
     }
@@ -236,7 +401,9 @@ fn main() {
         }
     }
 
+    let mut prev_tile = '.';
     let mut passed_turns = 0;
+    let mut result_msg = "Press any key to continue.".to_string();
 
     // Process move
     for &move_type in moves.iter() {
@@ -262,19 +429,103 @@ fn main() {
             && next_column <= m
             && grid[next_row][next_column] != '#'
         {
+            grid[player.row][player.column] = prev_tile;
+            prev_tile = grid[next_row][next_column];
+            grid[next_row][next_column] = '@';
+
             player.row = next_row;
             player.column = next_column;
         }
 
         // Process logic according to the cell
-        let ret = match grid[player.row][player.column] {
-            '.' => Ok(()),
+        match prev_tile {
             'B' => pick_item_box(&mut player, &mut items),
             '^' => take_damage_by_spike(&mut player),
-            '&' => battle_with_monster(&mut player, &mut monsters),
-            'M' => battle_with_boss(&mut player, &mut monsters),
-            _ => Ok(()),
+            '&' => {
+                let mut monster = monsters
+                    .iter_mut()
+                    .find(|monster| monster.row == player.row && monster.column == player.column)
+                    .unwrap();
+                battle_with_monster(&mut player, &mut monster)
+            }
+            'M' => {
+                let mut boss = monsters
+                    .iter_mut()
+                    .find(|monster| monster.row == player.row && monster.column == player.column)
+                    .unwrap();
+                battle_with_boss(&mut player, &mut boss)
+            }
+            _ => (),
         };
+
+        // Check if player is dead
+        if player.cur_health <= 0 {
+            if player.accessory.contains_key("RE") {
+                player.accessory.remove("RE");
+
+                let monster = monsters
+                    .iter_mut()
+                    .find(|monster| monster.row == player.row && monster.column == player.column);
+
+                if let Some(monster) = monster {
+                    monster.cur_health = monster.max_health;
+                }
+
+                grid[player.row][player.column] = prev_tile;
+                prev_tile = grid[init_position_player.0][init_position_player.1];
+                grid[init_position_player.0][init_position_player.1] = '@';
+
+                player.row = init_position_player.0;
+                player.column = init_position_player.1;
+                player.cur_health = player.max_health;
+            } else {
+                grid[player.row][player.column] = prev_tile;
+                player.cur_health = 0;
+                result_msg = match grid[player.row][player.column] {
+                    '^' => "YOU HAVE BEEN KILLED BY SPIKE TRAP..".to_string(),
+                    '&' | 'M' => format!(
+                        "YOU HAVE BEEN KILLED BY {}..",
+                        monsters
+                            .iter()
+                            .find(|m| m.row == player.row && m.column == player.column)
+                            .unwrap()
+                            .name
+                    ),
+                    _ => String::new(),
+                };
+
+                break;
+            }
+        }
+
+        prev_tile = match prev_tile {
+            'B' => '.',
+            '&' => {
+                let monster = monsters
+                    .iter_mut()
+                    .find(|monster| monster.row == player.row && monster.column == player.column)
+                    .unwrap();
+
+                if monster.cur_health <= 0 {
+                    '.'
+                } else {
+                    prev_tile
+                }
+            }
+            _ => prev_tile,
+        };
+
+        if prev_tile == 'M' {
+            let boss = monsters
+                .iter_mut()
+                .find(|monster| monster.row == player.row && monster.column == player.column)
+                .unwrap();
+
+            if boss.cur_health <= 0 {
+                result_msg = "YOU WIN!".to_string();
+                break;
+            }
+        }
     }
 
     // Print output
@@ -317,4 +568,5 @@ fn main() {
     )
     .unwrap();
     writeln!(out, "EXP : {}/{}", player.experience, player.level * 5).unwrap();
+    writeln!(out, "{result_msg}").unwrap();
 }

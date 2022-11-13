@@ -1,34 +1,58 @@
-use std::io;
+use io::Write;
+use std::{io, str};
 
-fn input_integers() -> Vec<i32> {
-    let mut s = String::new();
+pub struct UnsafeScanner<R> {
+    reader: R,
+    buf_str: Vec<u8>,
+    buf_iter: str::SplitAsciiWhitespace<'static>,
+}
 
-    io::stdin().read_line(&mut s).unwrap();
+impl<R: io::BufRead> UnsafeScanner<R> {
+    pub fn new(reader: R) -> Self {
+        Self {
+            reader,
+            buf_str: vec![],
+            buf_iter: "".split_ascii_whitespace(),
+        }
+    }
 
-    let values: Vec<i32> = s
-        .as_mut_str()
-        .split_whitespace()
-        .map(|s| s.parse().unwrap())
-        .collect();
-
-    values
+    pub fn token<T: str::FromStr>(&mut self) -> T {
+        loop {
+            if let Some(token) = self.buf_iter.next() {
+                return token.parse().ok().expect("Failed parse");
+            }
+            self.buf_str.clear();
+            self.reader
+                .read_until(b'\n', &mut self.buf_str)
+                .expect("Failed read");
+            self.buf_iter = unsafe {
+                let slice = str::from_utf8_unchecked(&self.buf_str);
+                std::mem::transmute(slice.split_ascii_whitespace())
+            }
+        }
+    }
 }
 
 fn main() {
-    let n = input_integers()[0] as usize;
+    let (stdin, stdout) = (io::stdin(), io::stdout());
+    let mut scan = UnsafeScanner::new(stdin.lock());
+    let mut out = io::BufWriter::new(stdout.lock());
 
-    let sequence = input_integers();
-    let mut longest = vec![0; n];
+    let n = scan.token::<usize>();
+    let mut sequence = vec![0; n];
+    let mut longest = vec![1; n];
 
     for i in 0..n {
-        longest[i] = 1;
+        sequence[i] = scan.token::<i64>();
+    }
 
+    for i in 0..n {
         for j in 0..i {
-            if sequence[i] > sequence[j] && longest[i] < longest[j] + 1 {
-                longest[i] = longest[j] + 1;
+            if sequence[i] > sequence[j] {
+                longest[i] = longest[i].max(longest[j] + 1);
             }
         }
     }
 
-    println!("{}", longest.iter().max().unwrap());
+    writeln!(out, "{}", longest.iter().max().unwrap()).unwrap();
 }

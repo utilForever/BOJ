@@ -53,7 +53,7 @@ fn main() {
                     ret += i;
                 }
 
-                if i != 1 {
+                if i != 1 && i != num / i {
                     ret += num / i;
                 }
             }

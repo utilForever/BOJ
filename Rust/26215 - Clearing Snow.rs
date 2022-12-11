@@ -40,34 +40,16 @@ fn main() {
 
     let n = scan.token::<usize>();
     let mut snows = vec![0; n];
-    let mut ret = 0;
 
     for i in 0..n {
         snows[i] = scan.token::<i64>();
-
-        if snows[i] > 1440 {
-            ret = -1;
-        }
     }
 
-    if ret != -1 {
-        while !snows.is_empty() {
-            snows.sort_by(|a, b| b.cmp(a));
-            
-            if snows.len() == 1 {
-                ret += snows[0];
-                break;
-            }
-
-            let val = snows[0].min(snows[1]);
-
-            ret += val;
-            snows[0] -= val;
-            snows[1] -= val;
-            
-            snows.retain(|&x| x > 0);
-        }
-    }
+    let ret = *snows
+        .iter()
+        .max()
+        .unwrap()
+        .max(&((snows.iter().sum::<i64>() as f64 / 2.0).ceil() as i64));
 
     writeln!(out, "{}", if ret > 1440 { -1 } else { ret }).unwrap();
 }

@@ -224,40 +224,40 @@ fn draw(
     actors: &HashMap<String, Actor>,
     name_node: String,
     name_parent: Option<String>,
-    mut x: usize,
-    mut y: usize,
-    x1: usize,
-    y1: usize,
-    x2: usize,
-    y2: usize,
+    mut x: i64,
+    mut y: i64,
+    x1: i64,
+    y1: i64,
+    x2: i64,
+    y2: i64,
 ) {
     if actors[&name_node].parent_origin.0 == 1 {
-        x += actors[name_parent.as_ref().unwrap()].size.0 as usize;
+        x += actors[name_parent.as_ref().unwrap()].size.0;
     }
 
     if actors[&name_node].parent_origin.1 == 1 {
-        y += actors[name_parent.as_ref().unwrap()].size.1 as usize;
+        y += actors[name_parent.as_ref().unwrap()].size.1;
     }
 
     if actors[&name_node].anchor_point.0 == 1 {
-        x -= actors[&name_node].size.0 as usize;
+        x -= actors[&name_node].size.0;
     }
 
     if actors[&name_node].anchor_point.1 == 1 {
-        y -= actors[&name_node].size.1 as usize;
+        y -= actors[&name_node].size.1;
     }
 
-    x += actors[&name_node].position.0 as usize;
-    y += actors[&name_node].position.1 as usize;
+    x += actors[&name_node].position.0;
+    y += actors[&name_node].position.1;
 
     let x_start = x1.max(x.max(0));
     let y_start = y1.max(y.max(0));
-    let x_end = x2.min((x + actors[&name_node].size.0 as usize).min(screen.len()));
-    let y_end = y2.min((y + actors[&name_node].size.1 as usize).min(screen[0].len()));
+    let x_end = x2.min((x + actors[&name_node].size.0).min(screen[0].len() as i64));
+    let y_end = y2.min((y + actors[&name_node].size.1).min(screen.len() as i64));
 
     for i in y_start..y_end {
         for j in x_start..x_end {
-            screen[i][j] = actors[&name_node].color;
+            screen[i as usize][j as usize] = actors[&name_node].color;
         }
     }
 
@@ -333,8 +333,8 @@ fn main() {
         0,
         0,
         0,
-        w,
-        h,
+        w as i64,
+        h as i64,
     );
 
     for i in 0..h {

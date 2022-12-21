@@ -33,7 +33,7 @@ impl<R: io::BufRead> UnsafeScanner<R> {
     }
 }
 
-static MIN: i64 = -1_000_000_000_000_000_000;
+static INF: i64 = 50_000_000_000_000;
 
 #[derive(Clone)]
 struct Max {
@@ -57,7 +57,7 @@ impl Node {
     fn new() -> Self {
         Self {
             max: Max {
-                first: MIN,
+                first: 0,
                 history: 0,
             },
             a: Value { value: 0, max: 0 },
@@ -66,7 +66,7 @@ impl Node {
 }
 
 #[derive(Clone, Default)]
-struct Add {
+struct Update {
     x1: usize,
     y1: usize,
     x2: usize,
@@ -74,28 +74,39 @@ struct Add {
     val: i64,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 struct Query {
     x1: usize,
     y1: usize,
     x2: usize,
     y2: usize,
+    idx: usize,
 }
 
 struct LazySegmentTree {
     size: usize,
     data: Vec<Node>,
-    list_add: Vec<Vec<Add>>,
+    list_add: Vec<Vec<Update>>,
+    list_update: Vec<Vec<Update>>,
     list_query: Vec<Vec<Query>>,
+
+    adds: Vec<Vec<(usize, usize, i64)>>,
+    removes: Vec<Vec<(usize, usize, i64)>>,
+    queries: Vec<Vec<(usize, usize, usize)>>,
 }
 
 impl LazySegmentTree {
-    pub fn new(n: usize, q: usize) -> Self {
+    pub fn new(n: usize) -> Self {
         Self {
             size: n,
             data: vec![Node::new(); n * 4],
             list_add: vec![Vec::new(); n * 4],
-            list_query: vec![Vec::new(); q],
+            list_update: vec![Vec::new(); n * 4],
+            list_query: vec![Vec::new(); n * 4],
+
+            adds: vec![Vec::new(); n + 2],
+            removes: vec![Vec::new(); n + 2],
+            queries: vec![Vec::new(); n + 2],
         }
     }
 
@@ -164,38 +175,39 @@ impl LazySegmentTree {
         self.data[node].a = Value { value: 0, max: 0 };
     }
 
-    pub fn push_add(&mut self, node: usize, start: usize, end: usize, node_start: usize, node_end: usize, add: Add) {
-        if end < node_start || node_end < start {
+    pub fn push_add(&mut self, node: usize, start: usize, end: usize, add: Update) {
+        if add.x1 <= start && end <= add.x2 {
+            self.list_add[node].push(add.clone());
             return;
         }
 
-        self.list_add[node].push(add.clone());
+        self.list_update[node].push(add.clone());
 
-        if start <= node_start && node_end <= end {
-            return;
+        let mid = (start + end) / 2;
+
+        if add.x1 <= mid {
+            self.push_add(node * 2, start, mid, add.clone());
         }
-
-        let mid = (node_start + node_end) / 2;
-
-        self.push_add(node * 2, start, end, node_start, mid, add.clone());
-        self.push_add(node * 2 + 1, start, end, mid + 1, node_end, add);
+        
+        if mid + 1 <= add.x2 {
+            self.push_add(node * 2 + 1, mid + 1, end, add);
+        }
     }
 
-    pub fn push_query(&mut self, node: usize, start: usize, end: usize, node_start: usize, node_end: usize, query: Query) {
-        if end < node_start || node_end < start {
-            return;
+    pub fn push_query(&mut self, node: usize, start: usize, end: usize, query: Query) {
+        let mid = (start + end) / 2;
+
+        if query.x1 <= mid && mid + 1 <= query.x2 {
+            return self.list_query[node].push(query.clone());
+        } else if query.x1 == mid + 1 || query.x2 == mid {
+            return self.list_query[node].push(query.clone());
         }
 
-        let mid = (node_start + node_end) / 2;
-
-        if start <= mid && mid + 1 < end {
-            self.list_query[node].push(query.clone());
-        } else if start == mid + 1 || end == mid {
-            self.list_query[node].push(query.clone());
+        if query.x1 <= mid {
+            self.push_query(node * 2, start, mid, query.clone());
+        } else {
+            self.push_query(node * 2 + 1, mid + 1, end, query);
         }
-
-        self.push_query(node * 2, start, end, node_start, mid, query.clone());
-        self.push_query(node * 2 + 1, start, end, mid + 1, node_end, query);
     }
 
     pub fn update_add(&mut self, start: usize, end: usize, val: i64) {
@@ -249,7 +261,7 @@ impl LazySegmentTree {
         self.propagate(node, node_start, node_end);
 
         if end < node_start || node_end < start {
-            return MIN;
+            return 0;
         }
 
         if start <= node_start && node_end <= end {
@@ -261,6 +273,116 @@ impl LazySegmentTree {
         let right = self.query_max_internal(start, end, node * 2 + 1, mid + 1, node_end);
 
         left.max(right)
+    }
+
+    fn solve(
+        &mut self,
+        node: usize,
+        start: usize,
+        end: usize,
+        offset: &mut i64,
+        ret: &mut Vec<i64>,
+    ) {
+        if start == end {
+            return;
+        }
+
+        let iter_add = self.list_add[node].clone();
+        let iter_update = self.list_update[node].clone();
+        let iter_query = self.list_query[node].clone();
+
+        for add in iter_add.iter() {
+            self.update_add(add.y1, add.y2, add.val);
+        }
+
+        for i in (start - 1)..=(end + 1) {
+            self.adds[i].clear();
+            self.removes[i].clear();
+            self.queries[i].clear();
+        }
+
+        let mid = (start + end) / 2;
+
+        for update in iter_update.iter() {
+            let left = update.x1.max(start);
+            let right = update.x2.min(mid);
+
+            if left <= right {
+                self.adds[right].push((update.y1, update.y2, update.val));
+                self.removes[left - 1].push((update.y1, update.y2, -update.val));
+            }
+        }
+
+        for query in iter_query.iter() {
+            if query.x2 >= mid {
+                self.queries[query.x1].push((query.y1, query.y2, query.idx));
+            }
+        }
+
+        self.update_add(1, self.size, INF);
+        *offset += INF;
+
+        for i in ((start - 1)..=mid).rev() {
+            let adds = self.adds[i].clone();
+            let removes = self.removes[i].clone();
+            let queries = self.queries[i].clone();
+
+            for val in removes.iter() {
+                self.update_add(val.0, val.1, val.2);
+            }
+
+            for val in adds.iter() {
+                self.update_add(val.0, val.1, val.2);
+            }
+
+            for val in queries.iter() {
+                ret[val.2] = ret[val.2].max(self.query_max(val.0, val.1) - *offset);
+            }
+        }
+
+        for update in iter_update.iter() {
+            let left = update.x1.max(mid + 1);
+            let right = update.x2.min(end);
+
+            if left <= right {
+                self.adds[left].push((update.y1, update.y2, update.val));
+                self.removes[right + 1].push((update.y1, update.y2, -update.val));
+            }
+        }
+
+        for query in iter_query.iter() {
+            if query.x1 <= mid + 1 {
+                self.queries[query.x2].push((query.y1, query.y2, query.idx));
+            }
+        }
+
+        self.update_add(1, self.size, INF);
+        *offset += INF;
+
+        for i in (mid + 1)..=(end + 1) {
+            let adds = self.adds[i].clone();
+            let removes = self.removes[i].clone();
+            let queries = self.queries[i].clone();
+
+            for val in removes.iter() {
+                self.update_add(val.0, val.1, val.2);
+            }
+
+            for val in adds.iter() {
+                self.update_add(val.0, val.1, val.2);
+            }
+
+            for val in queries.iter() {
+                ret[val.2] = ret[val.2].max(self.query_max(val.0, val.1) - *offset);
+            }
+        }
+
+        self.solve(node * 2, start, mid, offset, ret);
+        self.solve(node * 2 + 1, mid + 1, end, offset, ret);
+
+        for val in iter_add.iter() {
+            self.update_add(val.y1, val.y2, -val.val);
+        }
     }
 }
 
@@ -276,10 +398,10 @@ fn main() {
         scan.token::<usize>(),
     );
 
-    let mut tree = LazySegmentTree::new(n, m2);
+    let mut tree = LazySegmentTree::new(n);
     tree.construct(1, n);
 
-    for _ in 0..m1 {
+    for _ in 1..=m1 {
         let (x1, y1, x2, y2, w) = (
             scan.token::<usize>(),
             scan.token::<usize>(),
@@ -292,10 +414,21 @@ fn main() {
             continue;
         }
 
-        tree.push_add(1, x1, x2, 1, n, Add{ x1, y1, x2, y2, val: w });
+        tree.push_add(
+            1,
+            1,
+            n,
+            Update {
+                x1,
+                y1,
+                x2,
+                y2,
+                val: w,
+            },
+        );
     }
 
-    for _ in 0..m2 {
+    for i in 1..=m2 {
         let (x1, y1, x2, y2) = (
             scan.token::<usize>(),
             scan.token::<usize>(),
@@ -303,6 +436,26 @@ fn main() {
             scan.token::<usize>(),
         );
 
-        tree.push_query(1, x1, x2, 1, n, Query{ x1, y1, x2, y2 });
+        tree.push_query(
+            1,
+            1,
+            n,
+            Query {
+                x1,
+                y1,
+                x2,
+                y2,
+                idx: i,
+            },
+        );
+    }
+
+    let mut ret = vec![0; m2 + 1];
+    let mut offset = 0;
+
+    tree.solve(1, 1, n, &mut offset, &mut ret);
+
+    for i in 1..=m2 {
+        writeln!(out, "{}", ret[i]).unwrap();
     }
 }

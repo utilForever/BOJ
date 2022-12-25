@@ -82,7 +82,7 @@ struct KineticSegmentTree {
     size: usize,
     data: Vec<Line>,
     melt: Vec<i64>,
-    shoot: Vec<bool>,
+    tag: Vec<bool>,
     time: Vec<i64>,
     intercept: Vec<i64>,
 }
@@ -98,7 +98,7 @@ impl KineticSegmentTree {
             size: n,
             data: vec![Line::default(); real_n * 4],
             melt: vec![INF; real_n * 4],
-            shoot: vec![false; real_n * 4],
+            tag: vec![false; real_n * 4],
             time: vec![0; real_n * 4],
             intercept: vec![0; real_n * 4],
         }
@@ -138,7 +138,7 @@ impl KineticSegmentTree {
     }
 
     fn propagate(&mut self, node: usize, start: usize, end: usize) {
-        if !self.shoot[node] {
+        if !self.tag[node] {
             return;
         }
 
@@ -146,49 +146,138 @@ impl KineticSegmentTree {
         self.melt[node] -= self.time[node];
 
         if start == end {
-            self.shoot[node] = false;
+            self.tag[node] = false;
             self.time[node] = 0;
             self.intercept[node] = 0;
             return;
         }
 
-        self.shoot[node * 2] = true;
-        self.shoot[node * 2 + 1] = true;
+        self.tag[node * 2] = true;
         self.time[node * 2] += self.time[node];
-        self.time[node * 2 + 1] += self.time[node];
         self.intercept[node * 2] += self.intercept[node];
+
+        self.tag[node * 2 + 1] = true;
+        self.time[node * 2 + 1] += self.time[node];
         self.intercept[node * 2 + 1] += self.intercept[node];
 
-        self.shoot[node] = false;
+        self.tag[node] = false;
         self.time[node] = 0;
         self.intercept[node] = 0;
     }
 
-    fn update(&mut self, pos: usize, val: Line, node: usize, start: usize, end: usize) {
-        self.propagate(node, start, end);
+    fn add_intercept(&mut self, start: usize, end: usize, val: i64) {
+        self.add_intercept_internal(start, end, val, 1, 1, self.size);
+    }
 
-        if pos < start || pos > end {
+    fn add_intercept_internal(
+        &mut self,
+        start: usize,
+        end: usize,
+        val: i64,
+        node: usize,
+        node_start: usize,
+        node_end: usize,
+    ) {
+        self.propagate(node, node_start, node_end);
+
+        if end < node_start || node_end < start {
             return;
         }
 
-        if start == end {
-            self.data[node] = val;
+        if start <= node_start && node_end <= end {
+            self.tag[node] = true;
+            self.intercept[node] += val;
+            self.propagate(node, node_start, node_end);
             return;
         }
 
-        let mid = (start + end) / 2;
+        let mid = (node_start + node_end) / 2;
 
-        self.update(pos, val.clone(), node * 2, start, mid);
-        self.update(pos, val, node * 2 + 1, mid + 1, end);
+        self.add_intercept_internal(start, end, val.clone(), node * 2, node_start, mid);
+        self.add_intercept_internal(start, end, val, node * 2 + 1, mid + 1, node_end);
 
         self.merge(node);
     }
 
-    fn query(
+    fn update(&mut self, start: usize, end: usize, val: Line) {
+        self.update_internal(start, end, val, 1, 1, self.size);
+    }
+
+    fn update_internal(
+        &mut self,
+        start: usize,
+        end: usize,
+        val: Line,
+        node: usize,
+        node_start: usize,
+        node_end: usize,
+    ) {
+        self.propagate(node, node_start, node_end);
+
+        if end < node_start || node_end < start {
+            return;
+        }
+
+        if start <= node_start && node_end <= end {
+            self.data[node] = val;
+            return;
+        }
+
+        let mid = (node_start + node_end) / 2;
+
+        self.update_internal(start, end, val.clone(), node * 2, node_start, mid);
+        self.update_internal(start, end, val, node * 2 + 1, mid + 1, node_end);
+
+        self.merge(node);
+    }
+
+    fn heaten(&mut self, start: usize, end: usize, time: i64) {
+        self.heaten_internal(1, start, end, 1, self.size, time);
+    }
+
+    fn heaten_internal(
         &mut self,
         node: usize,
         start: usize,
         end: usize,
+        node_start: usize,
+        node_end: usize,
+        time: i64,
+    ) {
+        self.propagate(node, node_start, node_end);
+
+        if end < node_start || node_end < start {
+            return;
+        }
+
+        if start <= node_start && node_end <= end {
+            self.melt[node] -= 1;
+
+            if self.melt[node] > 0 {
+                self.tag[node] = true;
+                self.time[node] += 1;
+                self.propagate(node, node_start, node_end);
+                return;
+            }
+        }
+
+        let mid = (node_start + node_end) / 2;
+
+        self.heaten_internal(node * 2, start, end, node_start, mid, time);
+        self.heaten_internal(node * 2 + 1, start, end, mid + 1, node_end, time);
+
+        self.merge(node);
+    }
+
+    pub fn query(&mut self, start: usize, end: usize) -> Line {
+        self.query_internal(start, end, 1, 1, self.size)
+    }
+
+    fn query_internal(
+        &mut self,
+        start: usize,
+        end: usize,
+        node: usize,
         node_start: usize,
         node_end: usize,
     ) -> Line {
@@ -201,102 +290,14 @@ impl KineticSegmentTree {
         }
 
         let mid = (node_start + node_end) / 2;
-        let left = self.query(node * 2, start, end, node_start, mid);
-        let right = self.query(node * 2 + 1, start, end, mid + 1, node_end);
+        let left = self.query_internal(node * 2, start, end, node_start, mid);
+        let right = self.query_internal(node * 2 + 1, start, end, mid + 1, node_end);
 
         if left.ret > right.ret {
             left
         } else {
             right
         }
-    }
-
-    fn heaten(&mut self, left: usize, right: usize) {
-        self.heaten_internal(1, left, right, 0, self.size - 1);
-    }
-
-    fn heaten_internal(
-        &mut self,
-        node: usize,
-        start: usize,
-        end: usize,
-        node_start: usize,
-        node_end: usize,
-    ) {
-        self.propagate(node, node_start, node_end);
-
-        if end < node_start || node_end < start {
-            return;
-        }
-
-        if start <= node_start && node_end <= end {
-            self.update_by_heaten(node, start, end, node_start, node_end);
-            return;
-        }
-
-        let mid = (node_start + node_end) / 2;
-
-        self.heaten_internal(node * 2, start, end, node_start, mid);
-        self.heaten_internal(node * 2 + 1, start, end, mid + 1, node_end);
-
-        self.merge(node);
-    }
-
-    fn update_by_heaten(
-        &mut self,
-        node: usize,
-        start: usize,
-        end: usize,
-        node_start: usize,
-        node_end: usize,
-    ) {
-        self.propagate(node, node_start, node_end);
-
-        if self.melt[node] > 1 {
-            self.time[node] += 1;
-            self.shoot[node] = true;
-
-            self.propagate(node, node_start, node_end);
-            return;
-        }
-
-        let mid = (node_start + node_end) / 2;
-
-        self.update_by_heaten(node * 2, start, end, node_start, mid);
-        self.update_by_heaten(node * 2 + 1, start, end, mid + 1, node_end);
-
-        self.merge(node);
-    }
-
-    fn add_intercept(
-        &mut self,
-        val: i64,
-        node: usize,
-        start: usize,
-        end: usize,
-        node_start: usize,
-        node_end: usize,
-    ) {
-        self.propagate(node, node_start, node_end);
-
-        if end < node_start || node_end < start {
-            return;
-        }
-
-        if start <= node_start && node_end <= end {
-            self.shoot[node] = true;
-            self.intercept[node] += val;
-
-            self.propagate(node, node_start, node_end);
-            return;
-        }
-
-        let mid = (node_start + node_end) / 2;
-
-        self.add_intercept(val.clone(), node * 2, start, end, node_start, mid);
-        self.add_intercept(val, node * 2 + 1, start, end, mid + 1, node_end);
-
-        self.merge(node);
     }
 }
 
@@ -307,9 +308,9 @@ fn main() {
     let mut out = io::BufWriter::new(stdout.lock());
 
     let n = scan.token::<usize>();
-    let mut dragons = vec![Line::default(); n];
+    let mut dragons = vec![Line::default(); n + 1];
 
-    for i in 0..n {
+    for i in 1..=n {
         let (d, h) = (scan.token::<i64>(), scan.token::<i64>());
         dragons[i] = Line::new(d, h);
     }
@@ -322,18 +323,18 @@ fn main() {
     }
 
     let mut tree = KineticSegmentTree::new(n);
-    tree.construct(&dragons, 0, n - 1);
+    tree.construct(&dragons, 1, n);
 
     let mut ret = 0;
 
-    for _ in 0..n {
-        let val = tree.query(1, 0, n - 1, 0, n - 1);
+    for i in 1..=n {
+        let val = tree.query(1, n);
         ret += val.ret;
 
         writeln!(out, "{ret}").unwrap();
 
-        tree.add_intercept(val.slope, 1, 0, val.idx, 0, n - 1);
-        tree.heaten(val.idx, n - 1);
-        tree.update(val.idx, Line::new(0, -INF), 1, 0, n - 1);
+        tree.add_intercept(1, val.idx, val.slope);
+        tree.heaten(val.idx + 1, n, i as i64);
+        tree.update(val.idx, val.idx, Line::new(0, -INF));
     }
 }

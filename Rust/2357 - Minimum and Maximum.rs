@@ -1,5 +1,5 @@
 use io::Write;
-use std::{cmp, io, str};
+use std::{io, str};
 
 pub struct UnsafeScanner<R> {
     reader: R,
@@ -33,58 +33,106 @@ impl<R: io::BufRead> UnsafeScanner<R> {
     }
 }
 
-fn update(
-    tree: &mut Vec<(i64, i64)>,
-    cur: usize,
-    index: usize,
-    val: i64,
-    start: usize,
-    end: usize,
-) {
-    if index > end || index < start {
-        return;
-    }
-
-    if start == end {
-        tree[cur] = (val, val);
-        return;
-    }
-
-    if start != end {
-        let mid = (start + end) / 2;
-        update(tree, cur * 2, index, val, start, mid);
-        update(tree, cur * 2 + 1, index, val, mid + 1, end);
-    }
-
-    tree[cur] = (
-        cmp::min(tree[cur * 2].0, tree[cur * 2 + 1].0),
-        cmp::max(tree[cur * 2].1, tree[cur * 2 + 1].1),
-    );
+#[derive(Clone, Debug)]
+struct Node {
+    min: i64,
+    max: i64,
 }
 
-fn query(
-    tree: &Vec<(i64, i64)>,
-    cur: usize,
-    start: usize,
-    end: usize,
-    i: usize,
-    j: usize,
-) -> (i64, i64) {
-    if i > end || j < start
-    {
-        return (1_000_000_001, 0);
+impl Node {
+    fn new(val: i64) -> Self {
+        Self { min: val, max: val }
     }
 
-    if i <= start && j >= end {
-        return tree[cur];
+    fn merge(&mut self, other: &Self) -> Node {
+        let mut ret = Node::new(i64::MAX);
+        ret.min = self.min.min(other.min);
+        ret.max = self.max.max(other.max);
+
+        ret
+    }
+}
+
+struct SegmentTree {
+    size: usize,
+    data: Vec<Node>,
+}
+
+impl SegmentTree {
+    pub fn new(n: usize) -> Self {
+        let mut real_n = 1;
+        while real_n < n {
+            real_n *= 2;
+        }
+
+        Self {
+            size: n,
+            data: vec![Node::new(i64::MAX); real_n * 4],
+        }
     }
 
-    let mid = (start + end) / 2;
+    pub fn update(&mut self, index: usize, val: i64) {
+        self.update_internal(index, val, 1, 1, self.size);
+    }
 
-    let res1 = query(tree, cur * 2, start, mid, i, j);
-    let res2 = query(tree, cur * 2 + 1, mid + 1, end, i, j);
+    fn update_internal(
+        &mut self,
+        index: usize,
+        val: i64,
+        node: usize,
+        node_start: usize,
+        node_end: usize,
+    ) {
+        if index > node_end || index < node_start {
+            return;
+        }
 
-    (cmp::min(res1.0, res2.0), cmp::max(res1.1, res2.1))
+        if node_start == node_end {
+            self.data[node] = Node::new(val);
+            return;
+        }
+
+        let mid = (node_start + node_end) / 2;
+        self.update_internal(index, val, node * 2, node_start, mid);
+        self.update_internal(index, val, node * 2 + 1, mid + 1, node_end);
+
+        let mut left = self.data[node * 2].clone();
+        let right = self.data[node * 2 + 1].clone();
+        self.data[node] = left.merge(&right);
+    }
+
+    fn query(&mut self, start: usize, end: usize) -> Node {
+        self.query_internal(start, end, 1, 1, self.size)
+    }
+
+    fn query_internal(
+        &mut self,
+        start: usize,
+        end: usize,
+        node: usize,
+        node_start: usize,
+        node_end: usize,
+    ) -> Node {
+        if end < node_start || node_end < start {
+            return Node {
+                min: i64::MAX,
+                max: i64::MIN,
+            };
+        }
+
+        if start <= node_start && node_end <= end {
+            return self.data[node].clone();
+        }
+
+        let mid = (node_start + node_end) / 2;
+        let left = self.query_internal(start, end, node * 2, node_start, mid);
+        let right = self.query_internal(start, end, node * 2 + 1, mid + 1, node_end);
+
+        let min = left.min.min(right.min);
+        let max = left.max.max(right.max);
+
+        Node { min, max }
+    }
 }
 
 fn main() {
@@ -92,20 +140,19 @@ fn main() {
     let mut scan = UnsafeScanner::new(stdin.lock());
     let mut out = io::BufWriter::new(stdout.lock());
 
-    let (n, m): (usize, usize) = (scan.token(), scan.token());
-
+    let (n, m) = (scan.token::<usize>(), scan.token::<i64>());
+    let mut tree = SegmentTree::new(n);
     let mut arr = vec![0; n + 1];
-    let mut tree = vec![(0, 0); 4 * (n + 1)];
 
     for i in 1..=n {
-        arr[i] = scan.token();
-        update(&mut tree, 1, i, arr[i], 1, n);
+        arr[i] = scan.token::<i64>();
+        tree.update(i, arr[i]);
     }
 
-    for _ in 1..=m {
-        let (a, b): (usize, usize) = (scan.token(), scan.token());
+    for _ in 0..m {
+        let (a, b) = (scan.token::<usize>(), scan.token::<usize>());
+        let ret = tree.query(a, b);
 
-        let res = query(&tree, 1, 1, n, a, b);
-        writeln!(out, "{} {}", res.0, res.1).unwrap();
+        writeln!(out, "{} {}", ret.min, ret.max).unwrap();
     }
 }

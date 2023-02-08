@@ -38,12 +38,18 @@ fn main() {
     let mut scan = UnsafeScanner::new(stdin.lock());
     let mut out = io::BufWriter::new(stdout.lock());
 
-    let n = scan.token::<i128>();
+    let n = scan.token::<i64>();
 
-    writeln!(
-        out,
-        "{}",
-        ((3.0 + (12.0 * n as f64 - 3.0).sqrt()) / 6.0).ceil()
-    )
-    .unwrap();
+    if n == 1 {
+        writeln!(out, "1").unwrap();
+        return;
+    }
+
+    let mut ret = (((4.0 * n as f64 - 1.0) / 12.0).sqrt()) as i64;
+
+    while n > (ret * ret - ret) * 3 + 1 {
+        ret += 1;
+    }
+
+    writeln!(out, "{}", ret).unwrap();
 }

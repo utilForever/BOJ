@@ -33,75 +33,127 @@ impl<R: io::BufRead> UnsafeScanner<R> {
     }
 }
 
-fn init(arr: &Vec<usize>, tree: &mut Vec<usize>, node: usize, start: usize, end: usize) {
-    if start == end {
-        tree[node] = start;
-    } else {
-        init(arr, tree, node * 2, start, (start + end) / 2);
-        init(arr, tree, node * 2 + 1, (start + end) / 2 + 1, end);
+#[derive(Clone, Debug)]
+struct Node {
+    val: i64,
+    idx: i64,
+}
 
-        if arr[tree[node * 2]] <= arr[tree[node * 2 + 1]] {
-            tree[node] = tree[node * 2];
+impl Node {
+    fn new() -> Self {
+        Self {
+            val: 0,
+            idx: -1,
+        }
+    }
+
+    fn merge(&mut self, other: &Self) -> Node {
+        if self.val < other.val {
+            self.clone()
         } else {
-            tree[node] = tree[node * 2 + 1];
+            other.clone()
         }
     }
 }
 
-fn query(
-    arr: &Vec<usize>,
-    tree: &Vec<usize>,
-    node: usize,
-    start: usize,
-    end: usize,
-    i: usize,
-    j: usize,
-) -> i64 {
-    if i > end || j < start {
-        return -1;
+struct SegmentTree {
+    size: usize,
+    data: Vec<Node>,
+}
+
+impl SegmentTree {
+    pub fn new(n: usize) -> Self {
+        let mut real_n = 1;
+        while real_n < n {
+            real_n *= 2;
+        }
+
+        Self {
+            size: n,
+            data: vec![Node::new(); real_n * 4],
+        }
     }
 
-    if i <= start && j >= end {
-        return tree[node] as i64;
+    pub fn update(&mut self, index: usize, val: i64) {
+        self.update_internal(index, val, 1, 1, self.size);
     }
 
-    let left = query(arr, tree, node * 2, start, (start + end) / 2, i, j);
-    let right = query(arr, tree, node * 2 + 1, (start + end) / 2 + 1, end, i, j);
+    fn update_internal(
+        &mut self,
+        index: usize,
+        val: i64,
+        node: usize,
+        node_start: usize,
+        node_end: usize,
+    ) {
+        if index > node_end || index < node_start {
+            return;
+        }
 
-    if left == -1 {
-        return right;
-    } else if right == -1 {
-        return left;
-    } else {
-        if arr[left as usize] <= arr[right as usize] {
-            return left;
+        if node_start == node_end {
+            self.data[node] = Node {
+                val,
+                idx: node_start as i64,
+            };
+            return;
+        }
+
+        let mid = (node_start + node_end) / 2;
+        self.update_internal(index, val, node * 2, node_start, mid);
+        self.update_internal(index, val, node * 2 + 1, mid + 1, node_end);
+
+        let mut left = self.data[node * 2].clone();
+        let right = self.data[node * 2 + 1].clone();
+        self.data[node] = left.merge(&right);
+    }
+
+    fn query(&mut self, start: usize, end: usize) -> Node {
+        self.query_internal(start, end, 1, 1, self.size)
+    }
+
+    fn query_internal(
+        &mut self,
+        start: usize,
+        end: usize,
+        node: usize,
+        node_start: usize,
+        node_end: usize,
+    ) -> Node {
+        if end < node_start || node_end < start {
+            return Node::new();
+        }
+
+        if start <= node_start && node_end <= end {
+            return self.data[node].clone();
+        }
+
+        let mid = (node_start + node_end) / 2;
+        let mut left = self.query_internal(start, end, node * 2, node_start, mid);
+        let right = self.query_internal(start, end, node * 2 + 1, mid + 1, node_end);
+
+        if left.idx == -1 {
+            right
+        } else if right.idx == -1 {
+            left
         } else {
-            return right;
+            left.merge(&right)
         }
     }
 }
 
-fn get_largest(arr: &Vec<usize>, tree: &Vec<usize>, start: usize, end: usize) -> i64 {
-    let m = query(arr, tree, 1, 0, arr.len() - 1, start, end);
-    let mut area = ((end - start + 1) * arr[m as usize]) as i64;
+fn calculate_max(tree: &mut SegmentTree, left: usize, right: usize) -> i64 {
+    let node = tree.query(left, right);
+    let mut ret = (right - left + 1) as i64 * node.val;
 
-    if start as i64 <= m - 1 {
-        let temp = get_largest(arr, tree, start, (m - 1) as usize);
-
-        if area < temp {
-            area = temp;
-        }
+    if left as i64 <= node.idx - 1 {
+        ret = ret.max(calculate_max(tree, left, (node.idx - 1) as usize));
     }
 
-    if end as i64 >= m + 1 {
-        let temp = get_largest(arr, tree, (m + 1) as usize, end);
-
-        if area < temp {
-            area = temp;
-        }
+    if right as i64 >= node.idx + 1 {
+        ret = ret.max(calculate_max(tree, (node.idx + 1) as usize, right));
     }
 
-    area
+    ret
 }
 
 fn main() {
@@ -110,21 +162,20 @@ fn main() {
     let mut out = io::BufWriter::new(stdout.lock());
 
     loop {
-        let n = scan.token();
+        let n = scan.token::<usize>();
+
         if n == 0 {
             break;
         }
 
-        let mut h = vec![0; n];
+        let mut tree = SegmentTree::new(n);
+        let mut arr = vec![0; n + 1];
 
-        for i in 0..n {
-            h[i] = scan.token::<usize>();
+        for i in 1..=n {
+            arr[i] = scan.token::<i64>();
+            tree.update(i, arr[i]);
         }
-
-        let mut tree = vec![0; 4 * n];
-
-        init(&h, &mut tree, 1, 0, n - 1);
-
-        writeln!(out, "{}", get_largest(&h, &tree, 0, n - 1)).unwrap();
+    
+        writeln!(out, "{}", calculate_max(&mut tree, 1, n)).unwrap();
     }
 }

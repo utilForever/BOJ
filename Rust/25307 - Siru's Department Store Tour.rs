@@ -67,6 +67,8 @@ fn preprocess_bfs(
             }
 
             if department_store[next_x][next_y] == 4 {
+                visited[next_x][next_y] = visited[x][y] + 1;
+                queue.push_back((next_x, next_y));
                 continue;
             }
 

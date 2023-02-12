@@ -1,30 +1,57 @@
-use std::io;
+use io::Write;
+use std::{io, str};
 
-fn input_integers() -> Vec<i32> {
-    let mut s = String::new();
+pub struct UnsafeScanner<R> {
+    reader: R,
+    buf_str: Vec<u8>,
+    buf_iter: str::SplitAsciiWhitespace<'static>,
+}
 
-    io::stdin().read_line(&mut s).unwrap();
+impl<R: io::BufRead> UnsafeScanner<R> {
+    pub fn new(reader: R) -> Self {
+        Self {
+            reader,
+            buf_str: vec![],
+            buf_iter: "".split_ascii_whitespace(),
+        }
+    }
 
-    let values: Vec<i32> = s
-        .as_mut_str()
-        .split_whitespace()
-        .map(|s| s.parse().unwrap())
-        .collect();
-
-    values
+    pub fn token<T: str::FromStr>(&mut self) -> T {
+        loop {
+            if let Some(token) = self.buf_iter.next() {
+                return token.parse().ok().expect("Failed parse");
+            }
+            self.buf_str.clear();
+            self.reader
+                .read_until(b'\n', &mut self.buf_str)
+                .expect("Failed read");
+            self.buf_iter = unsafe {
+                let slice = str::from_utf8_unchecked(&self.buf_str);
+                std::mem::transmute(slice.split_ascii_whitespace())
+            }
+        }
+    }
 }
 
 fn main() {
-    let x = input_integers()[0];
-    let y = input_integers()[0];
+    let (stdin, stdout) = (io::stdin(), io::stdout());
+    let mut scan = UnsafeScanner::new(stdin.lock());
+    let mut out = io::BufWriter::new(stdout.lock());
 
-    if x > 0 && y > 0 {
-        println!("1");
-    } else if x < 0 && y > 0 {
-        println!("2");
-    } else if x < 0 && y < 0 {
-        println!("3");
-    } else if x > 0 && y < 0 {
-        println!("4");
-    }
+    let (x, y) = (scan.token::<i64>(), scan.token::<i64>());
+
+    writeln!(
+        out,
+        "{}",
+        if x > 0 && y > 0 {
+            "1"
+        } else if x < 0 && y > 0 {
+            "2"
+        } else if x < 0 && y < 0 {
+            "3"
+        } else {
+            "4"
+        }
+    )
+    .unwrap();
 }

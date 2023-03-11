@@ -1,0 +1,78 @@
+use io::Write;
+use std::{io, str};
+
+pub struct UnsafeScanner<R> {
+    reader: R,
+    buf_str: Vec<u8>,
+    buf_iter: str::SplitAsciiWhitespace<'static>,
+}
+
+impl<R: io::BufRead> UnsafeScanner<R> {
+    pub fn new(reader: R) -> Self {
+        Self {
+            reader,
+            buf_str: vec![],
+            buf_iter: "".split_ascii_whitespace(),
+        }
+    }
+
+    pub fn token<T: str::FromStr>(&mut self) -> T {
+        loop {
+            if let Some(token) = self.buf_iter.next() {
+                return token.parse().ok().expect("Failed parse");
+            }
+            self.buf_str.clear();
+            self.reader
+                .read_until(b'\n', &mut self.buf_str)
+                .expect("Failed read");
+            self.buf_iter = unsafe {
+                let slice = str::from_utf8_unchecked(&self.buf_str);
+                std::mem::transmute(slice.split_ascii_whitespace())
+            }
+        }
+    }
+}
+
+fn main() {
+    let (stdin, stdout) = (io::stdin(), io::stdout());
+    let mut scan = UnsafeScanner::new(stdin.lock());
+    let mut out = io::BufWriter::new(stdout.lock());
+
+    let mut prime_numbers = vec![0; 1000001];
+
+    for i in 2..=1000000 {
+        prime_numbers[i] = i;
+    }
+
+    for i in 2..=(1000000 as f64).sqrt() as usize {
+        if prime_numbers[i] == 0 {
+            continue;
+        }
+
+        for j in (i * i..=1000000).step_by(i) {
+            prime_numbers[j] = 0;
+        }
+    }
+
+    loop {
+        let n = scan.token::<usize>();
+
+        if n == 0 {
+            break;
+        }
+
+        let mut is_found = false;
+
+        for i in 3..=(n / 2) {
+            if prime_numbers[i] != 0 && prime_numbers[n - i] != 0 {
+                writeln!(out, "{n} = {i} + {}", n - i).unwrap();
+                is_found = true;
+                break;
+            }
+        }
+
+        if !is_found {
+            writeln!(out, "Goldbach's conjecture is wrong.").unwrap();
+        }
+    }
+}

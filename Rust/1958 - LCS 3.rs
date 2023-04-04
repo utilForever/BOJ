@@ -1,17 +1,46 @@
-use std::io;
+use io::Write;
+use std::{io, str};
+
+pub struct UnsafeScanner<R> {
+    reader: R,
+    buf_str: Vec<u8>,
+    buf_iter: str::SplitAsciiWhitespace<'static>,
+}
+
+impl<R: io::BufRead> UnsafeScanner<R> {
+    pub fn new(reader: R) -> Self {
+        Self {
+            reader,
+            buf_str: vec![],
+            buf_iter: "".split_ascii_whitespace(),
+        }
+    }
+
+    pub fn token<T: str::FromStr>(&mut self) -> T {
+        loop {
+            if let Some(token) = self.buf_iter.next() {
+                return token.parse().ok().expect("Failed parse");
+            }
+            self.buf_str.clear();
+            self.reader
+                .read_until(b'\n', &mut self.buf_str)
+                .expect("Failed read");
+            self.buf_iter = unsafe {
+                let slice = str::from_utf8_unchecked(&self.buf_str);
+                std::mem::transmute(slice.split_ascii_whitespace())
+            }
+        }
+    }
+}
 
 fn main() {
-    let mut s = String::new();
-    io::stdin().read_line(&mut s).unwrap();
-    s = s.trim().to_string();
+    let (stdin, stdout) = (io::stdin(), io::stdout());
+    let mut scan = UnsafeScanner::new(stdin.lock());
+    let mut out = io::BufWriter::new(stdout.lock());
 
-    let mut t = String::new();
-    io::stdin().read_line(&mut t).unwrap();
-    t = t.trim().to_string();
-
-    let mut r = String::new();
-    io::stdin().read_line(&mut r).unwrap();
-    r = r.trim().to_string();
+    let s = scan.token::<String>();
+    let t = scan.token::<String>();
+    let r = scan.token::<String>();
 
     let mut lcs_count = vec![vec![vec![0; 101]; 101]; 101];
     let mut i = 0;
@@ -45,8 +74,8 @@ fn main() {
         }
     }
 
-    println!(
+    writeln!(out, 
         "{}",
         lcs_count[s.chars().count()][t.chars().count()][r.chars().count()]
-    );
+    ).unwrap();
 }

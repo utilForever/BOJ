@@ -1,30 +1,48 @@
-use std::{cmp, io};
+use io::Write;
+use std::{io, str};
 
-fn input_integers() -> Vec<i32> {
-    let mut s = String::new();
-
-    io::stdin().read_line(&mut s).unwrap();
-
-    let values: Vec<i32> = s
-        .as_mut_str()
-        .split_whitespace()
-        .map(|s| s.parse().unwrap())
-        .collect();
-
-    values
+pub struct UnsafeScanner<R> {
+    reader: R,
+    buf_str: Vec<u8>,
+    buf_iter: str::SplitAsciiWhitespace<'static>,
 }
 
-fn binary_search(lis: &Vec<i32>, value: i32) -> i32 {
+impl<R: io::BufRead> UnsafeScanner<R> {
+    pub fn new(reader: R) -> Self {
+        Self {
+            reader,
+            buf_str: vec![],
+            buf_iter: "".split_ascii_whitespace(),
+        }
+    }
+
+    pub fn token<T: str::FromStr>(&mut self) -> T {
+        loop {
+            if let Some(token) = self.buf_iter.next() {
+                return token.parse().ok().expect("Failed parse");
+            }
+            self.buf_str.clear();
+            self.reader
+                .read_until(b'\n', &mut self.buf_str)
+                .expect("Failed read");
+            self.buf_iter = unsafe {
+                let slice = str::from_utf8_unchecked(&self.buf_str);
+                std::mem::transmute(slice.split_ascii_whitespace())
+            }
+        }
+    }
+}
+
+fn binary_search(lis: &Vec<i64>, value: i64) -> i64 {
     let mut left = 0;
     let mut right = lis.len() - 1;
-    let mut mid;
 
     while left <= right {
-        mid = (left + right) / 2;
+        let mid = (left + right) / 2;
         let lis_mid_left = if mid > 0 { lis[mid - 1] } else { 0 };
 
         if (lis_mid_left < value && value < lis[mid]) || lis[mid] == value {
-            return mid as i32;
+            return mid as i64;
         } else if lis[mid] < value {
             left = mid + 1;
         } else {
@@ -35,45 +53,52 @@ fn binary_search(lis: &Vec<i32>, value: i32) -> i32 {
     -1
 }
 
-fn process_lis(
-    sequence: &Vec<i32>,
-    lis: &mut Vec<i32>,
-    bound: i32,
-) {
+fn process_lis(sequence: &Vec<i64>, lis: &mut Vec<i64>, bound: usize) {
     lis.push(-1_000_000_007);
 
     for i in 1..=bound {
-        let index = binary_search(&lis, sequence[i as usize]);
+        let index = binary_search(&lis, sequence[i]);
 
         if index == -1 {
-            lis.push(sequence[i as usize]);
+            lis.push(sequence[i]);
         } else if sequence[i as usize] < lis[index as usize] {
-            lis[index as usize] = cmp::min(lis[index as usize], sequence[i as usize]);
+            lis[index as usize] = lis[index as usize].min(sequence[i]);
         }
     }
 }
 
 fn main() {
-    let n = input_integers()[0];
+    let (stdin, stdout) = (io::stdin(), io::stdout());
+    let mut scan = UnsafeScanner::new(stdin.lock());
+    let mut out = io::BufWriter::new(stdout.lock());
 
-    let a = input_integers();
-    let b = input_integers();
-
-    let mut temp = vec![0; n as usize];
-    let mut c = vec![0; n as usize];
+    let n = scan.token::<usize>();
+    let mut a = vec![0; n];
+    let mut b = vec![0; n];
 
     for i in 0..n {
-        temp[b[i as usize] as usize - 1] = i;
+        a[i] = scan.token::<i64>();
     }
 
     for i in 0..n {
-        c[i as usize] = temp[a[i as usize] as usize - 1];
+        b[i] = scan.token::<i64>();
+    }
+
+    let mut temp = vec![0; n];
+    let mut c = vec![0; n];
+
+    for i in 0..n {
+        temp[b[i] as usize - 1] = i as i64;
+    }
+
+    for i in 0..n {
+        c[i] = temp[a[i] as usize - 1];
     }
 
     let mut lis = Vec::new();
-    
     c.insert(0, 0);
 
     process_lis(&c, &mut lis, n);
-    println!("{}", lis.len() - 1);
+
+    writeln!(out, "{}", lis.len() - 1).unwrap();
 }

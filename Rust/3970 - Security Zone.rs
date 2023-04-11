@@ -117,9 +117,17 @@ impl Disc {
     }
 
     fn get_points(&self, other: &Disc, points: &mut Vec<Point>, val: f64) {
-        let sign = |val: f64| -> i64 { if val.abs() < 1e-10 { 0 } else if val > 0.0 { 1 } else { -1 } };
+        let sign = |val: f64| -> i64 {
+            if val.abs() < 1e-10 {
+                0
+            } else if val > 0.0 {
+                1
+            } else {
+                -1
+            }
+        };
         let calculate_ab = |x1: f64, y1: f64, x2: f64, y2: f64| -> Point {
-            let a = (y2 - y1) / (x1 - x2);
+            let a = (y1 - y2) / (x1 - x2);
             let b = x1 * a + y1;
 
             Point { x: a, y: b }
@@ -405,7 +413,6 @@ impl Edge {
 #[derive(Debug)]
 struct ConvexHull {
     discs: Vec<Disc>,
-    edges: Vec<Edge>,
 }
 
 impl ConvexHull {
@@ -449,6 +456,28 @@ impl ConvexHull {
                 angle += 2.0 * std::f64::consts::PI;
             }
 
+            println!(
+                "i : {} {} {} {}",
+                circles[i].center.0,
+                circles[i].center.1,
+                circles[i].radius,
+                angle1 / std::f64::consts::PI * 180.0
+            );
+            println!(
+                "j : {} {} {} {}",
+                circles[j].center.0,
+                circles[j].center.1,
+                circles[j].radius,
+                angle / std::f64::consts::PI * 180.0
+            );
+            println!(
+                "k : {} {} {} {}",
+                circles[k].center.0,
+                circles[k].center.1,
+                circles[k].radius,
+                angle2 / std::f64::consts::PI * 180.0
+            );
+
             ret += angle * circles[j].radius;
 
             if !points2.is_empty() {
@@ -475,7 +504,9 @@ impl ConvexHullAlgorithm {
             if a.center.1 + a.radius == b.center.1 + b.radius {
                 a.center.0.partial_cmp(&b.center.0).unwrap()
             } else {
-                (a.center.1 + a.radius).partial_cmp(&(b.center.1 + b.radius)).unwrap()
+                (a.center.1 + a.radius)
+                    .partial_cmp(&(b.center.1 + b.radius))
+                    .unwrap()
             }
         });
     }
@@ -483,12 +514,12 @@ impl ConvexHullAlgorithm {
     pub fn find(&self, start: usize, end: usize) -> ConvexHull {
         if start == end {
             return ConvexHull {
-                discs: self.discs.clone(),
-                edges: Vec::new(),
+                discs: vec![self.discs[start].clone()],
             };
         }
 
         let mid = (start + end) / 2;
+        println!("start: {}, end: {}, mid: {}", start, end, mid);
         let p = self.find(start, mid);
         let q = self.find(mid + 1, end);
 
@@ -545,7 +576,10 @@ impl ConvexHullAlgorithm {
 
     fn add(&self, list: &mut Vec<Disc>, disc: &Disc) -> bool {
         if list.is_empty() || *list.last().unwrap() != *disc {
+            println!("list : {:?}", list);
+            println!("add disc to list : {:?}", disc);
             list.push(disc.clone());
+            println!("after add list : {:?}", list);
             true
         } else {
             false
@@ -564,7 +598,6 @@ impl ConvexHullAlgorithm {
 
     fn merge(&self, lch: &ConvexHull, rch: &ConvexHull) -> ConvexHull {
         let mut list = Vec::new();
-        let mut edges = Vec::new();
         let end_p = lch.discs.len();
         let end_q = rch.discs.len();
         let mut disc_idx_p = 0;
@@ -579,14 +612,13 @@ impl ConvexHullAlgorithm {
         let mut line_p = lch.discs[disc_idx_p].compute_parallel_support_line(&line_star);
         let mut line_q = rch.discs[disc_idx_q].compute_parallel_support_line(&line_star);
 
+        println!("lch : {:?}", lch);
+        println!("rch : {:?}", rch);
+        println!("dom : {}", self.dom(&line_p, &line_q));
+
         while i < end_p || j < end_q {
             if self.dom(&line_p, &line_q) {
-                if self.add(&mut list, &lch.discs[disc_idx_p]) && list.len() != 1 {
-                    let s = list[list.len() - 2].clone();
-                    let e = s.compute_common_support_line_to(&lch.discs[disc_idx_p]);
-                    edges.push(e);
-                }
-
+                self.add(&mut list, &lch.discs[disc_idx_p]);
                 self.advance(
                     &mut line_star,
                     &mut i,
@@ -594,17 +626,11 @@ impl ConvexHullAlgorithm {
                     &mut j,
                     &mut disc_idx_q,
                     &mut list,
-                    &mut edges,
                     &lch.discs,
                     &rch.discs,
                 );
             } else {
-                if self.add(&mut list, &rch.discs[disc_idx_q]) && list.len() != 1 {
-                    let s = list[list.len() - 2].clone();
-                    let e = s.compute_common_support_line_to(&rch.discs[disc_idx_q]);
-                    edges.push(e);
-                }
-
+                self.add(&mut list, &rch.discs[disc_idx_q]);
                 self.advance(
                     &mut line_star,
                     &mut j,
@@ -612,7 +638,6 @@ impl ConvexHullAlgorithm {
                     &mut i,
                     &mut disc_idx_p,
                     &mut list,
-                    &mut edges,
                     &rch.discs,
                     &lch.discs,
                 );
@@ -622,7 +647,11 @@ impl ConvexHullAlgorithm {
             line_q = rch.discs[disc_idx_q].compute_parallel_support_line(&line_star);
         }
 
-        ConvexHull { discs: list, edges }
+        if list.len() > 1 && list[0] == *list.last().unwrap() {
+            list.pop();
+        }
+
+        ConvexHull { discs: list }
     }
 
     fn advance(
@@ -633,12 +662,9 @@ impl ConvexHullAlgorithm {
         idx_y: &mut usize,
         idx_disc_y: &mut usize,
         list: &mut Vec<Disc>,
-        edges: &mut Vec<Edge>,
         list_x: &Vec<Disc>,
         list_y: &Vec<Disc>,
     ) {
-        let mut line_xy = Edge::default();
-        let mut line_yx = Edge::default();
         let mut line_x_succ = Edge::default();
         let mut line_y_succ = Edge::default();
 
@@ -648,8 +674,8 @@ impl ConvexHullAlgorithm {
         let mut a4 = 361.0;
 
         if list_x[*idx_disc_x].exist_common_support_line(&list_y[*idx_disc_y]) {
-            line_xy = list_x[*idx_disc_x].compute_common_support_line_to(&list_y[*idx_disc_y]);
-            line_yx = list_y[*idx_disc_y].compute_common_support_line_to(&list_x[*idx_disc_x]);
+            let line_xy = list_x[*idx_disc_x].compute_common_support_line_to(&list_y[*idx_disc_y]);
+            let line_yx = list_y[*idx_disc_y].compute_common_support_line_to(&list_x[*idx_disc_x]);
             a1 = line_star.angle_to(&line_xy);
             a4 = line_star.angle_to(&line_yx);
         }
@@ -671,16 +697,83 @@ impl ConvexHullAlgorithm {
             a3 = line_star.angle_to(&line_y_succ);
         }
 
-        if a1 == a1.min(a2.min(a3)) && a1 != 361.0 {
+        println!("a1 : {}, a2 : {}, a3 : {}, a4 : {}", a1, a2, a3, a4);
+
+        // if a1 == a1.min(a2.min(a3)) {
+        //     let disc_y = list_y[*idx_disc_y].clone();
+
+        //     if list.is_empty() || *list.last().unwrap() != disc_y {
+        //         if list.len() >= 2 && list[0] == *list.last().unwrap() && list[1] == disc_y {
+        //             return;
+        //         }
+
+        //         list.push(disc_y.clone());
+        //         *idx_y += 1;
+        //     }
+        // }
+
+        // if a4 == a4.min(a2.min(a3)) {
+        //     let disc_x = list_x[*idx_disc_x].clone();
+
+        //     if list.is_empty() || *list.last().unwrap() != disc_x {
+        //         if list.len() >= 2 && list[0] == *list.last().unwrap() && list[1] == disc_x {
+        //             return;
+        //         }
+
+        //         list.push(disc_x.clone());
+        //         *idx_x += 1;
+        //     }
+        // }
+
+        if a1 < a4 {
             let disc_x = list_x[*idx_disc_x].clone();
             let disc_y = list_y[*idx_disc_y].clone();
 
-            if self.add(list, &disc_y) {
-                edges.push(line_xy);
+            if a1 < a2.min(a3) {
+                if list.is_empty() || *list.last().unwrap() != disc_y {
+                    if list.len() >= 2 && list[0] == *list.last().unwrap() && list[1] == disc_y {
+                        return;
+                    }
+
+                    list.push(disc_y.clone());
+                    *idx_y += 1;
+                }
             }
 
-            if a4 == a4.min(a2.min(a3)) && self.add(list, &disc_x) {
-                edges.push(line_yx);
+            if a4 < a2.min(a3) {
+                if list.is_empty() || *list.last().unwrap() != disc_x {
+                    if list.len() >= 2 && list[0] == *list.last().unwrap() && list[1] == disc_x {
+                        return;
+                    }
+
+                    list.push(disc_x.clone());
+                    *idx_x += 1;
+                }
+            }
+        } else {
+            let disc_x = list_x[*idx_disc_x].clone();
+            let disc_y = list_y[*idx_disc_y].clone();
+
+            if a4 < a2.min(a3) {
+                if list.is_empty() || *list.last().unwrap() != disc_x {
+                    if list.len() >= 2 && list[0] == *list.last().unwrap() && list[1] == disc_x {
+                        return;
+                    }
+
+                    list.push(disc_x.clone());
+                    *idx_x += 1;
+                }
+            }
+
+            if a1 < a2.min(a3) {
+                if list.is_empty() || *list.last().unwrap() != disc_y {
+                    if list.len() >= 2 && list[0] == *list.last().unwrap() && list[1] == disc_y {
+                        return;
+                    }
+
+                    list.push(disc_y.clone());
+                    *idx_y += 1;
+                }
             }
         }
 
@@ -691,7 +784,7 @@ impl ConvexHullAlgorithm {
                 *idx_x += 1;
                 *idx_disc_x = *idx_x % list_x.len();
             }
-        } else if a2 > a3 || (a2 == a3 && a2 != 361.0) {
+        } else {
             *line_star = line_y_succ.clone();
 
             if *idx_y < list_y.len() {

@@ -37,7 +37,7 @@ extern "C" {
     fn rand() -> u32;
 }
 
-#[derive(Default, Copy, Clone, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
 struct Point {
     x: f64,
     y: f64,
@@ -51,6 +51,19 @@ impl Point {
         }
     }
 
+    fn set_point(&mut self, px: f64, py: f64) {
+        self.x = px;
+        self.y = py;
+    }
+
+    fn set_x(&mut self, px: f64) {
+        self.x = px;
+    }
+
+    fn set_y(&mut self, py: f64) {
+        self.y = py;
+    }
+
     fn magnitude(&self) -> f64 {
         self.x.hypot(self.y)
     }
@@ -61,6 +74,20 @@ impl Point {
         Point {
             x: self.x / magnitude,
             y: self.y / magnitude,
+        }
+    }
+
+    fn angle_from_vec1_to_vec2(&self, other: Point) -> f64 {
+        let vec1 = self.get_unit_vector();
+        let vec2 = other.get_unit_vector();
+        let point_to_point = Point::new(vec1 - vec2);
+        let length = point_to_point.magnitude();
+        let cosine = ((2.0 - length * length) / 2.0).clamp(-1.0, 1.0);
+
+        if vec1 * vec2 > 0.0 {
+            cosine.acos()
+        } else {
+            2.0 * std::f64::consts::PI - cosine.acos()
         }
     }
 }
@@ -106,7 +133,7 @@ impl std::ops::Neg for Point {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct Line {
     start: Point,
     end: Point,
@@ -115,6 +142,12 @@ struct Line {
 impl Line {
     fn new(start: Point, end: Point) -> Self {
         Self { start, end }
+    }
+
+    fn get_length(&self) -> f64 {
+        let length = Point::new(self.end - self.start);
+
+        length.magnitude()
     }
 
     fn signed_distance(&self, point: Point) -> f64 {
@@ -144,8 +177,8 @@ impl Line {
     }
 }
 
+#[derive(Default, Clone)]
 struct Disk {
-    id: usize,
     center: Point,
     radius: f64,
 }
@@ -159,12 +192,74 @@ impl Disk {
     }
 }
 
+struct Arc {
+    disk: Disk,
+    start: Point,
+    end: Point,
+}
+
+impl Arc {
+    fn new(disk: Disk) -> Self {
+        Self {
+            disk,
+            start: Point {
+                x: f64::MAX,
+                y: f64::MAX,
+            },
+            end: Point {
+                x: f64::MAX,
+                y: f64::MAX,
+            },
+        }
+    }
+
+    fn new_with_points(disk: Disk, start: Point, end: Point) -> Self {
+        Self { disk, start, end }
+    }
+
+    fn angle_btw_start_and_end_pts(&self) -> f64 {
+        if self.start.x == f64::MAX || self.start.y == f64::MAX {
+            2.0 * std::f64::consts::PI
+        } else if self.start == self.end {
+            0.0
+        } else {
+            let center = self.disk.center;
+            let vec_center_to_start = self.start - center;
+            let vec_center_to_end = self.end - center;
+
+            vec_center_to_start.angle_from_vec1_to_vec2(vec_center_to_end)
+        }
+    }
+
+    fn calculate_arc_length(&self) -> f64 {
+        self.angle_btw_start_and_end_pts() * self.disk.radius
+    }
+}
+
+#[derive(Default)]
+struct LineImplicitEquation {
+    coefficient: [f64; 3],
+}
+
+impl LineImplicitEquation {
+    fn evaluate_implicit_equation(&self, value_for_x: f64, value_for_y: f64) -> f64 {
+        self.coefficient[0] * value_for_x + self.coefficient[1] * value_for_y + self.coefficient[2]
+    }
+}
+
 struct InputForFindHull {
     disks: Vec<usize>,
     pre_apex_disk: usize,
     post_apex_disk: usize,
     hull_point_of_pre_apex_disk: Point,
     hull_point_of_post_apex_disk: Point,
+}
+
+enum SliverConfiguration {
+    SliverCaseA,
+    SliverCaseB,
+    SliverCaseC1,
+    SliverCaseC2,
 }
 
 #[derive(Default)]
@@ -325,28 +420,15 @@ impl QuickhullDisk {
                 true,
             ) {
                 initial_expanded_non_positive_disks_d_right.push(idx);
-            } else if self.this_disk_is_a_member_of_expanded_non_negative_set_wrt_line(
+            }
+
+            if self.this_disk_is_a_member_of_expanded_non_negative_set_wrt_line(
                 disk,
                 oriented_line_segment_base_line_pq,
                 true,
             ) {
                 initial_expanded_non_positive_disks_d_left.push(idx);
             }
-        }
-    }
-
-    fn this_disk_is_a_member_of_expanded_non_positive_set_wrt_line(
-        &self,
-        candidate_disk: &Disk,
-        oriented_line_segment: &mut Line,
-        including_on_positive: bool,
-    ) -> bool {
-        if including_on_positive {
-            oriented_line_segment.signed_distance(candidate_disk.center)
-                >= -candidate_disk.radius - 1e-6
-        } else {
-            oriented_line_segment.signed_distance(candidate_disk.center)
-                > -candidate_disk.radius - 1e-6
         }
     }
 
@@ -358,10 +440,25 @@ impl QuickhullDisk {
     ) -> bool {
         if including_on_negative {
             oriented_line_segment.signed_distance(candidate_disk.center)
+                >= -candidate_disk.radius - 1e-6
+        } else {
+            oriented_line_segment.signed_distance(candidate_disk.center)
+                > -candidate_disk.radius + 1e-6
+        }
+    }
+
+    fn this_disk_is_a_member_of_expanded_non_positive_set_wrt_line(
+        &self,
+        candidate_disk: &Disk,
+        oriented_line_segment: &mut Line,
+        including_on_positive: bool,
+    ) -> bool {
+        if including_on_positive {
+            oriented_line_segment.signed_distance(candidate_disk.center)
                 <= candidate_disk.radius + 1e-6
         } else {
             oriented_line_segment.signed_distance(candidate_disk.center)
-                < candidate_disk.radius + 1e-6
+                < candidate_disk.radius - 1e-6
         }
     }
 
@@ -392,27 +489,15 @@ impl QuickhullDisk {
     ) {
         while !stack_for_finding_hull.is_empty() {
             let mut input_of_current_step = stack_for_finding_hull.pop().unwrap();
-            let (
-                mut disks_d,
-                mut pre_apex_disk_dp,
-                mut post_apex_disk_dq,
-                mut hull_point_p,
-                mut hull_point_q,
-            ) = (
-                &mut input_of_current_step.disks,
-                &mut input_of_current_step.pre_apex_disk,
-                &mut input_of_current_step.post_apex_disk,
-                &mut input_of_current_step.hull_point_of_pre_apex_disk,
-                &mut input_of_current_step.hull_point_of_post_apex_disk,
-            );
-
-            let num_of_disk_in_d = disks_d.len();
+            let num_of_disk_in_d = input_of_current_step.disks.len();
 
             if num_of_disk_in_d == 1 {
-                hull_disks.push(*pre_apex_disk_dp);
-            } else if num_of_disk_in_d == 2 && pre_apex_disk_dp != post_apex_disk_dq {
-                hull_disks.push(*pre_apex_disk_dp);
-                hull_disks.push(*post_apex_disk_dq);
+                hull_disks.push(input_of_current_step.pre_apex_disk);
+            } else if num_of_disk_in_d == 2
+                && input_of_current_step.pre_apex_disk != input_of_current_step.post_apex_disk
+            {
+                hull_disks.push(input_of_current_step.pre_apex_disk);
+                hull_disks.push(input_of_current_step.post_apex_disk);
             } else {
                 let mut disks_d_front_edge = Vec::new();
                 let mut disks_d_back_edge = Vec::new();
@@ -420,64 +505,79 @@ impl QuickhullDisk {
                 let mut triangle_apex_x = Point::default();
                 let mut apex_disk_dx = 0;
 
-                let oriented_line_segment_base_edge_pq = Line::new(*hull_point_p, *hull_point_q);
+                let oriented_line_segment_base_edge_pq = Line::new(
+                    input_of_current_step.hull_point_of_pre_apex_disk,
+                    input_of_current_step.hull_point_of_post_apex_disk,
+                );
                 let mut candidate_apex_n_disk_pairs = Vec::new();
 
-                self.find_the_highest_triangle_apex_and_the_apex_disk_wrt_this_oriented_line_segment(&disks_d, &oriented_line_segment_base_edge_pq, &mut candidate_apex_n_disk_pairs, false, None, None);
+                self.find_the_highest_triangle_apex_and_the_apex_disk_wrt_this_oriented_line_segment(&input_of_current_step.disks, &oriented_line_segment_base_edge_pq, &mut candidate_apex_n_disk_pairs, false, None, None);
 
                 if candidate_apex_n_disk_pairs.len() == 1 {
                     triangle_apex_x = candidate_apex_n_disk_pairs[0].0;
                     apex_disk_dx = candidate_apex_n_disk_pairs[0].1;
                 } else {
-                    self.pick_one_as_triangle_apex_and_apex_disk_among_disks_with_identical_height_and_remove_disks_contained_in_others_from_input_disks_if_exist(&candidate_apex_n_disk_pairs, &mut triangle_apex_x, &mut apex_disk_dx, &mut disks_d);
+                    self.pick_one_as_triangle_apex_and_apex_disk_among_disks_with_identical_height_and_remove_disks_contained_in_others_from_input_disks_if_exist(&candidate_apex_n_disk_pairs, &mut triangle_apex_x, &mut apex_disk_dx, &mut input_of_current_step.disks);
                 }
 
-                let oriented_line_segment_front_edge_px = Line::new(*hull_point_p, triangle_apex_x);
-                let oriented_line_segment_back_edge_xq = Line::new(triangle_apex_x, *hull_point_q);
+                let oriented_line_segment_front_edge_px = Line::new(
+                    input_of_current_step.hull_point_of_pre_apex_disk,
+                    triangle_apex_x,
+                );
+                let oriented_line_segment_back_edge_xq = Line::new(
+                    triangle_apex_x,
+                    input_of_current_step.hull_point_of_post_apex_disk,
+                );
 
                 self.find_expanded_non_positive_disks_wrt_oriented_line_segment(
-                    &disks_d,
+                    &input_of_current_step.disks,
                     &oriented_line_segment_front_edge_px,
-                    &pre_apex_disk_dp,
+                    &input_of_current_step.pre_apex_disk,
                     &apex_disk_dx,
                     &mut disks_d_front_edge,
                     true,
                 );
                 self.find_expanded_non_positive_disks_wrt_oriented_line_segment(
-                    &disks_d,
+                    &input_of_current_step.disks,
                     &oriented_line_segment_back_edge_xq,
                     &apex_disk_dx,
-                    &post_apex_disk_dq,
+                    &input_of_current_step.post_apex_disk,
                     &mut disks_d_back_edge,
                     true,
                 );
 
                 if self.triangle_filter_is_sliver(
-                    disks_d.len(),
+                    input_of_current_step.disks.len(),
                     disks_d_front_edge.len(),
                     disks_d_back_edge.len(),
-                    &pre_apex_disk_dp,
-                    &post_apex_disk_dq,
+                    &input_of_current_step.pre_apex_disk,
+                    &input_of_current_step.post_apex_disk,
                 ) {
                     disks_d_front_edge.clear();
                     disks_d_back_edge.clear();
 
-                    self.regularize_sliver_triangle_and_repivot_disks();
+                    self.regularize_sliver_triangle_and_repivot_disks(
+                        &mut input_of_current_step,
+                        &mut disks_d_front_edge,
+                        &mut disks_d_back_edge,
+                        &mut apex_disk_dx,
+                        &mut triangle_apex_x,
+                    );
                 }
 
                 self.prepare_and_insert_input_data_for_finding_hull_to_stack(
                     &disks_d_back_edge,
                     &mut apex_disk_dx,
-                    &mut post_apex_disk_dq,
+                    &mut input_of_current_step.post_apex_disk,
                     &mut triangle_apex_x,
-                    &mut hull_point_q,
+                    &mut input_of_current_step.hull_point_of_post_apex_disk,
                     stack_for_finding_hull,
                 );
                 self.prepare_and_insert_input_data_for_finding_hull_to_stack(
                     &disks_d_front_edge,
-                    &mut pre_apex_disk_dp,
+                    &mut input_of_current_step.pre_apex_disk,
                     &mut apex_disk_dx,
-                    &mut hull_point_p,
+                    &mut input_of_current_step.hull_point_of_pre_apex_disk,
                     &mut triangle_apex_x,
                     stack_for_finding_hull,
                 );
@@ -490,7 +590,7 @@ impl QuickhullDisk {
     fn find_the_highest_triangle_apex_and_the_apex_disk_wrt_this_oriented_line_segment(
         &mut self,
         disks_d: &Vec<usize>,
-        oriented_line_segment_base_edge_pq: &Line,
+        oriented_line_segment_pq: &Line,
         apex_n_disk_pairs: &mut Vec<(Point, usize)>,
         oriented_line_is_not_negative_support_of_dp_n_dq: bool,
         pre_apex_disk_dp: Option<usize>,
@@ -509,7 +609,7 @@ impl QuickhullDisk {
 
             let max_perpendicular_distance_from_line_to_boundary_of_cur_disk = self.disks[*disk]
                 .radius
-                - oriented_line_segment_base_edge_pq.signed_distance(self.disks[*disk].center);
+                - oriented_line_segment_pq.signed_distance(self.disks[*disk].center);
 
             if max_perpendicular_distance_from_line_to_boundary_of_cur_disk
                 > largest_max_perpendicular_distance_from_line_to_boundary_of_disk_among_disks
@@ -520,10 +620,7 @@ impl QuickhullDisk {
 
                 apex_n_disk_pairs.clear();
                 let farthest_point_on_cur_disk_touching_tangent_line = self
-                    .find_the_fartest_point_of_disk_from_this_line(
-                        disk,
-                        oriented_line_segment_base_edge_pq,
-                    );
+                    .find_the_fartest_point_of_disk_from_this_line(disk, oriented_line_segment_pq);
                 apex_n_disk_pairs.push((farthest_point_on_cur_disk_touching_tangent_line, *disk));
             } else if (max_perpendicular_distance_from_line_to_boundary_of_cur_disk
                 - largest_max_perpendicular_distance_from_line_to_boundary_of_disk_among_disks)
@@ -531,10 +628,7 @@ impl QuickhullDisk {
                 <= 1e-6
             {
                 let farthest_point_on_cur_disk_touching_tangent_line = self
-                    .find_the_fartest_point_of_disk_from_this_line(
-                        disk,
-                        oriented_line_segment_base_edge_pq,
-                    );
+                    .find_the_fartest_point_of_disk_from_this_line(disk, oriented_line_segment_pq);
                 apex_n_disk_pairs.push((farthest_point_on_cur_disk_touching_tangent_line, *disk));
             }
         }
@@ -544,17 +638,11 @@ impl QuickhullDisk {
                 <= 1e-6
         {
             if pre_apex_disk_dp.is_some() {
-                apex_n_disk_pairs.push((
-                    oriented_line_segment_base_edge_pq.start,
-                    pre_apex_disk_dp.unwrap(),
-                ));
+                apex_n_disk_pairs.push((oriented_line_segment_pq.start, pre_apex_disk_dp.unwrap()));
             }
 
             if post_apex_disk_dq.is_some() {
-                apex_n_disk_pairs.push((
-                    oriented_line_segment_base_edge_pq.end,
-                    post_apex_disk_dq.unwrap(),
-                ));
+                apex_n_disk_pairs.push((oriented_line_segment_pq.end, post_apex_disk_dq.unwrap()));
             }
         }
     }
@@ -655,8 +743,7 @@ impl QuickhullDisk {
         disks_d: &mut Vec<usize>,
     ) {
         for contained_disk in contained_disks_in_others.iter() {
-            let index = disks_d.iter().position(|&x| x == *contained_disk).unwrap();
-            disks_d.remove(index);
+            disks_d.retain(|&x| x != *contained_disk);
         }
     }
 
@@ -772,21 +859,412 @@ impl QuickhullDisk {
     }
 
     fn regularize_sliver_triangle_and_repivot_disks(
-        input_for_find_hull: &InputForFindHull,
+        &mut self,
+        input_for_find_hull: &mut InputForFindHull,
         disks_d_front_edge: &mut Vec<usize>,
         disks_d_back_edge: &mut Vec<usize>,
         pivot_disk_dx: &mut usize,
         pivot_point_x: &mut Point,
     ) {
-        let (mut disks_d, mut pre_apex_disk_dp, mut post_apex_disk_dq, hull_point_p, hull_point_q) = (
+        let non_negative_supporting_tangent_line_segment_from_dp_to_dq = self
+            .compute_a_ccw_oriented_tangent_line_from_disk_d1_to_d2(
+                input_for_find_hull.pre_apex_disk,
+                input_for_find_hull.post_apex_disk,
+            );
+
+        let mut triangle_apex_n_disk_pairs_of_expanded_non_positive = Vec::new();
+        let mut triangle_apex_n_disk_pairs_of_on_positive_except_dp_n_dq = Vec::new();
+
+        let sliver_configuration = self.find_sliver_triangle_configuration_and_apex_disks(
             &mut input_for_find_hull.disks,
+            &non_negative_supporting_tangent_line_segment_from_dp_to_dq,
             &mut input_for_find_hull.pre_apex_disk,
             &mut input_for_find_hull.post_apex_disk,
-            input_for_find_hull.hull_point_of_pre_apex_disk,
-            input_for_find_hull.hull_point_of_post_apex_disk,
+            &mut triangle_apex_n_disk_pairs_of_expanded_non_positive,
+            &mut triangle_apex_n_disk_pairs_of_on_positive_except_dp_n_dq,
         );
 
-        
+        match sliver_configuration {
+            SliverConfiguration::SliverCaseA => {
+                let mut triangle_apex_n_disk_pairs_of_dp_n_dq = Vec::new();
+                triangle_apex_n_disk_pairs_of_dp_n_dq.push((
+                    non_negative_supporting_tangent_line_segment_from_dp_to_dq.start,
+                    input_for_find_hull.pre_apex_disk,
+                ));
+                triangle_apex_n_disk_pairs_of_dp_n_dq.push((
+                    non_negative_supporting_tangent_line_segment_from_dp_to_dq.end,
+                    input_for_find_hull.post_apex_disk,
+                ));
+
+                self.pick_one_as_triangle_apex_and_apex_disk(
+                    &triangle_apex_n_disk_pairs_of_dp_n_dq,
+                    pivot_point_x,
+                    pivot_disk_dx,
+                );
+            }
+            SliverConfiguration::SliverCaseB => {
+                if triangle_apex_n_disk_pairs_of_on_positive_except_dp_n_dq.len() == 1 {
+                    *pivot_point_x = triangle_apex_n_disk_pairs_of_on_positive_except_dp_n_dq[0].0;
+                    *pivot_disk_dx = triangle_apex_n_disk_pairs_of_on_positive_except_dp_n_dq[0].1;
+                } else {
+                    self.pick_one_as_triangle_apex_and_apex_disk_among_disks_with_identical_height_and_remove_disks_contained_in_others_from_input_disks_if_exist(&triangle_apex_n_disk_pairs_of_on_positive_except_dp_n_dq, pivot_point_x, pivot_disk_dx, &mut input_for_find_hull.disks);
+                }
+            }
+            SliverConfiguration::SliverCaseC1 => {
+                *pivot_point_x = triangle_apex_n_disk_pairs_of_expanded_non_positive[0].0;
+                *pivot_disk_dx = triangle_apex_n_disk_pairs_of_expanded_non_positive[0].1;
+            }
+            SliverConfiguration::SliverCaseC2 => {
+                self.pick_one_as_triangle_apex_and_apex_disk_among_disks_with_identical_height_and_remove_disks_contained_in_others_from_input_disks_if_exist(&triangle_apex_n_disk_pairs_of_expanded_non_positive, pivot_point_x, pivot_disk_dx, &mut input_for_find_hull.disks);
+            }
+        }
+
+        let oriented_line_segment_front_edge_px = Line::new(
+            input_for_find_hull.hull_point_of_pre_apex_disk,
+            *pivot_point_x,
+        );
+        self.find_expanded_non_positive_disks_wrt_oriented_line_segment(
+            &input_for_find_hull.disks,
+            &oriented_line_segment_front_edge_px,
+            &input_for_find_hull.pre_apex_disk,
+            pivot_disk_dx,
+            disks_d_front_edge,
+            true,
+        );
+
+        let oriented_line_segment_back_edge_xq = Line::new(
+            *pivot_point_x,
+            input_for_find_hull.hull_point_of_post_apex_disk,
+        );
+        self.find_expanded_non_positive_disks_wrt_oriented_line_segment(
+            &input_for_find_hull.disks,
+            &oriented_line_segment_back_edge_xq,
+            pivot_disk_dx,
+            &input_for_find_hull.post_apex_disk,
+            disks_d_back_edge,
+            true,
+        );
+    }
+
+    fn compute_a_ccw_oriented_tangent_line_from_disk_d1_to_d2(
+        &self,
+        disk1: usize,
+        disk2: usize,
+    ) -> Line {
+        let disk1 = &self.disks[disk1];
+        let disk2 = &self.disks[disk2];
+
+        if disk1.radius == 0.0 && disk2.radius == 0.0 {
+            return Line::new(disk1.center, disk2.center);
+        } else {
+            let mut two_tangent_oriented_line_segment = vec![Line::default(); 2];
+            self.compute_two_oriented_tangent_line_segments_from_circle_c1_to_c2(
+                disk1,
+                disk2,
+                &mut two_tangent_oriented_line_segment,
+            );
+
+            let sum_of_signed_distance = two_tangent_oriented_line_segment[0]
+                .signed_distance(disk1.center)
+                + two_tangent_oriented_line_segment[0].signed_distance(disk2.center);
+
+            if sum_of_signed_distance > 0.0 {
+                two_tangent_oriented_line_segment[0].clone()
+            } else {
+                two_tangent_oriented_line_segment[1].clone()
+            }
+        }
+    }
+
+    fn compute_two_oriented_tangent_line_segments_from_circle_c1_to_c2(
+        &self,
+        disk1: &Disk,
+        disk2: &Disk,
+        two_tangent_oriented_line_segments: &mut Vec<Line>,
+    ) {
+        let mut implicit_equation_of_tangent_line1 = LineImplicitEquation::default();
+        let mut implicit_equation_of_tangent_line2 = LineImplicitEquation::default();
+
+        self.make_exterior_tangent_lines_of_two_circles(
+            disk1,
+            disk2,
+            &mut implicit_equation_of_tangent_line1,
+            &mut implicit_equation_of_tangent_line2,
+        );
+
+        let mut tangent_point_on_disk1 = [Point::default(); 2];
+        let mut tangent_point_on_disk2 = [Point::default(); 2];
+
+        if disk1.radius != 0.0 {
+            tangent_point_on_disk1[0] = self.compute_tangent_point_between_line_and_circle(
+                disk1,
+                &implicit_equation_of_tangent_line1,
+            );
+            tangent_point_on_disk1[1] = self.compute_tangent_point_between_line_and_circle(
+                disk1,
+                &implicit_equation_of_tangent_line2,
+            );
+        } else {
+            tangent_point_on_disk1[0] = disk1.center;
+            tangent_point_on_disk1[1] = disk1.center;
+        }
+
+        if disk2.radius != 0.0 {
+            tangent_point_on_disk2[0] = self.compute_tangent_point_between_line_and_circle(
+                disk2,
+                &implicit_equation_of_tangent_line1,
+            );
+            tangent_point_on_disk2[1] = self.compute_tangent_point_between_line_and_circle(
+                disk2,
+                &implicit_equation_of_tangent_line2,
+            );
+        } else {
+            tangent_point_on_disk2[0] = disk2.center;
+            tangent_point_on_disk2[1] = disk2.center;
+        }
+
+        two_tangent_oriented_line_segments[0] =
+            Line::new(tangent_point_on_disk1[0], tangent_point_on_disk2[0]);
+        two_tangent_oriented_line_segments[1] =
+            Line::new(tangent_point_on_disk1[1], tangent_point_on_disk2[1]);
+    }
+
+    fn make_exterior_tangent_lines_of_two_circles(
+        &self,
+        disk1: &Disk,
+        disk2: &Disk,
+        result1: &mut LineImplicitEquation,
+        result2: &mut LineImplicitEquation,
+    ) {
+        let w1 = if disk1.radius < disk2.radius {
+            disk2
+        } else {
+            disk1
+        };
+        let w2 = if disk1.radius < disk2.radius {
+            disk1
+        } else {
+            disk2
+        };
+
+        let c2c_vector = w1.center - w2.center;
+        let r = w1.radius - w2.radius;
+        let length = c2c_vector.magnitude();
+        let sine = r / length;
+        let cosine = (length * length - r * r).sqrt() / length;
+
+        let mut normal1 = Point {
+            x: c2c_vector.x * cosine - c2c_vector.y * sine,
+            y: c2c_vector.x * sine + c2c_vector.y * cosine,
+        };
+        let mut normal2 = Point {
+            x: c2c_vector.x * cosine + c2c_vector.y * sine,
+            y: c2c_vector.y * cosine - c2c_vector.x * sine,
+        };
+        normal1 = normal1.get_unit_vector();
+        normal2 = normal2.get_unit_vector();
+
+        normal1.set_point(normal1.y, -1.0 * normal1.x);
+        normal2.set_point(-1.0 * normal2.y, normal2.x);
+
+        result1.coefficient[0] = normal1.x;
+        result1.coefficient[1] = normal1.y;
+        result1.coefficient[2] =
+            -1.0 * normal1.x * w2.center.x - normal1.y * w2.center.y + w2.radius;
+
+        result2.coefficient[0] = normal2.x;
+        result2.coefficient[1] = normal2.y;
+        result2.coefficient[2] =
+            -1.0 * normal2.x * w2.center.x - normal2.y * w2.center.y + w2.radius;
+    }
+
+    fn compute_tangent_point_between_line_and_circle(
+        &self,
+        disk: &Disk,
+        line_implicit_equation: &LineImplicitEquation,
+    ) -> Point {
+        let mut tangent_point = Point::default();
+
+        let x = disk.center.x;
+        let y = disk.center.y;
+        let a = line_implicit_equation.coefficient[0];
+        let b = line_implicit_equation.coefficient[1];
+        let a2_b2 = a.powi(2) + b.powi(2);
+
+        if (a2_b2 - 1.0).abs() <= 1e-6 {
+            tangent_point.set_x(-a * line_implicit_equation.evaluate_implicit_equation(x, y) + x);
+            tangent_point.set_y(-b * line_implicit_equation.evaluate_implicit_equation(x, y) + y);
+        } else {
+            tangent_point
+                .set_x(-a * line_implicit_equation.evaluate_implicit_equation(x, y) / a2_b2 + x);
+            tangent_point
+                .set_y(-b * line_implicit_equation.evaluate_implicit_equation(x, y) / a2_b2 + y);
+        }
+
+        tangent_point
+    }
+
+    fn find_sliver_triangle_configuration_and_apex_disks(
+        &mut self,
+        disks_d: &mut Vec<usize>,
+        non_negative_supporting_tangent_line_segment_from_dp_to_dq: &Line,
+        pre_apex_disk_dp: &mut usize,
+        post_apex_disk_dq: &mut usize,
+        triangle_apex_n_disk_pairs_of_expanded_non_positive: &mut Vec<(Point, usize)>,
+        triangle_apex_n_disk_pairs_of_on_positive_except_dp_n_dq: &mut Vec<(Point, usize)>,
+    ) -> SliverConfiguration {
+        let mut sliver_configuration = SliverConfiguration::SliverCaseA;
+
+        let mut triangle_apex_n_disk_pairs = Vec::new();
+        self.find_the_highest_triangle_apex_and_the_apex_disk_wrt_this_oriented_line_segment(
+            disks_d,
+            non_negative_supporting_tangent_line_segment_from_dp_to_dq,
+            &mut triangle_apex_n_disk_pairs,
+            true,
+            Some(*pre_apex_disk_dp),
+            Some(*post_apex_disk_dq),
+        );
+
+        let candidate_apex_disk = triangle_apex_n_disk_pairs[0].1;
+        let height_of_triangle_apex = self.disks[candidate_apex_disk].radius
+            - non_negative_supporting_tangent_line_segment_from_dp_to_dq
+                .signed_distance(self.disks[candidate_apex_disk].center);
+
+        if height_of_triangle_apex <= 1e-6 {
+            let mut contained_disks_in_pre_or_post_apex_disk = Vec::new();
+            self.remove_pre_and_post_apex_disks_and_contained_disks_in_one_of_the_two_from_candidate_apex_disks_if_exist(pre_apex_disk_dp, post_apex_disk_dq, &mut triangle_apex_n_disk_pairs, &mut contained_disks_in_pre_or_post_apex_disk);
+
+            if !contained_disks_in_pre_or_post_apex_disk.is_empty() {
+                self.remove_contained_disks_from_input_disks(
+                    &contained_disks_in_pre_or_post_apex_disk,
+                    disks_d,
+                );
+            }
+
+            if triangle_apex_n_disk_pairs.is_empty() {
+                sliver_configuration = SliverConfiguration::SliverCaseA;
+            } else {
+                sliver_configuration = SliverConfiguration::SliverCaseB;
+                *triangle_apex_n_disk_pairs_of_on_positive_except_dp_n_dq =
+                    triangle_apex_n_disk_pairs;
+            }
+        } else {
+            if triangle_apex_n_disk_pairs.len() == 1 {
+                sliver_configuration = SliverConfiguration::SliverCaseC1;
+                triangle_apex_n_disk_pairs_of_expanded_non_positive
+                    .push(triangle_apex_n_disk_pairs[0])
+            } else {
+                sliver_configuration = SliverConfiguration::SliverCaseC2;
+                *triangle_apex_n_disk_pairs_of_expanded_non_positive = triangle_apex_n_disk_pairs;
+            }
+        }
+
+        sliver_configuration
+    }
+
+    fn remove_pre_and_post_apex_disks_and_contained_disks_in_one_of_the_two_from_candidate_apex_disks_if_exist(
+        &self,
+        pre_apex_disk_dp: &mut usize,
+        post_apex_disk_dq: &mut usize,
+        candidate_triangle_apex_n_disk_pairs: &mut Vec<(Point, usize)>,
+        contained_disk_in_pre_or_post_apex_disk: &mut Vec<usize>,
+    ) {
+        let mut idx = 0;
+
+        while idx < candidate_triangle_apex_n_disk_pairs.len() {
+            let candidate_apex_disk = candidate_triangle_apex_n_disk_pairs[idx].1;
+
+            if candidate_apex_disk == *pre_apex_disk_dp || candidate_apex_disk == *post_apex_disk_dq
+            {
+                candidate_triangle_apex_n_disk_pairs.remove(idx);
+                idx -= 1;
+                continue;
+            }
+
+            if self.disks[*pre_apex_disk_dp].contain(&self.disks[candidate_apex_disk], 1e-6)
+                || self.disks[*post_apex_disk_dq].contain(&self.disks[candidate_apex_disk], 1e-6)
+            {
+                contained_disk_in_pre_or_post_apex_disk.push(candidate_apex_disk);
+                candidate_triangle_apex_n_disk_pairs.remove(idx);
+                idx -= 1;
+            } else {
+                idx += 1;
+            }
+        }
+    }
+
+    fn extract_convex_hull_boundary(&self, hull_disks: &Vec<usize>) -> f64 {
+        if hull_disks.is_empty() {
+            return 0.0;
+        } else if hull_disks.len() == 1 {
+            let arc = Arc::new(self.disks[hull_disks[0]].clone());
+            return 2.0 * std::f64::consts::PI * arc.disk.radius;
+        }
+
+        let num_of_tangent_lines = hull_disks.len() - 1;
+        let mut tangent_line_segments = vec![Line::default(); num_of_tangent_lines];
+        let mut geometry_of_hull_disks = vec![0; num_of_tangent_lines];
+
+        let mut idx_disk = 0;
+        let idx_last_disk_in_extreme_disks = hull_disks.len() - 1;
+        let mut idx = 0;
+
+        while idx_disk < idx_last_disk_in_extreme_disks {
+            let cur_disk = hull_disks[idx_disk];
+            geometry_of_hull_disks[idx] = cur_disk;
+
+            idx_disk += 1;
+            let next_disk = hull_disks[idx_disk];
+            let oriented_tangent_line_segment =
+                self.compute_a_ccw_oriented_tangent_line_from_disk_d1_to_d2(cur_disk, next_disk);
+            tangent_line_segments[idx] = oriented_tangent_line_segment;
+
+            idx += 1;
+        }
+
+        for i in 0..num_of_tangent_lines {
+            if (tangent_line_segments[i % num_of_tangent_lines].end.x
+                - tangent_line_segments[(i + 1) % num_of_tangent_lines]
+                    .start
+                    .x)
+                .abs()
+                <= 1e-5
+                && (tangent_line_segments[i % num_of_tangent_lines].end.y
+                    - tangent_line_segments[(i + 1) % num_of_tangent_lines]
+                        .start
+                        .y)
+                    .abs()
+                    <= 1e-5
+            {
+                tangent_line_segments[(i + 1) % num_of_tangent_lines].start =
+                    tangent_line_segments[i % num_of_tangent_lines].end;
+            }
+        }
+
+        let mut boundary_arc_n_lines = Vec::new();
+
+        for i in 0..num_of_tangent_lines {
+            let start_point_of_arc =
+                tangent_line_segments[(i + num_of_tangent_lines - 1) % num_of_tangent_lines].end;
+            let end_point_of_arc = tangent_line_segments[i].start;
+
+            let cur_arc = Arc::new_with_points(
+                self.disks[geometry_of_hull_disks[i]].clone(),
+                start_point_of_arc,
+                end_point_of_arc,
+            );
+            let tangent_line_segment_next_to_cur_arc = tangent_line_segments[i].clone();
+            boundary_arc_n_lines.push((cur_arc, tangent_line_segment_next_to_cur_arc));
+        }
+
+        let mut ret = 0.0;
+
+        for (arc, line) in boundary_arc_n_lines {
+            ret += arc.calculate_arc_length();
+            ret += line.get_length();
+        }
+
+        ret
     }
 }
 
@@ -802,15 +1280,14 @@ fn main() {
         let n = scan.token::<usize>();
         let mut disks = Vec::new();
 
-        for i in 1..=n {
+        for _ in 1..=n {
             let (x, y, r) = (
                 scan.token::<f64>(),
                 scan.token::<f64>(),
-                scan.token::<f64>() + 10.0,
+                scan.token::<f64>(),
             );
 
             disks.push(Disk {
-                id: i,
                 center: Point { x, y },
                 radius: r,
             });
@@ -818,5 +1295,12 @@ fn main() {
 
         let mut quickhull_disk_algorithm = QuickhullDisk::new(disks);
         let hull_disks = quickhull_disk_algorithm.find_hull_disks();
+
+        writeln!(
+            out,
+            "{:.10}",
+            quickhull_disk_algorithm.extract_convex_hull_boundary(&hull_disks)
+        )
+        .unwrap();
     }
 }

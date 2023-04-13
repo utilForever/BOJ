@@ -1,6 +1,5 @@
 use io::Write;
-use std::{cmp::Ordering, collections::BTreeSet, io, ops::Sub, str};
-use Ordering::{Equal, Greater, Less};
+use std::{io, str};
 
 pub struct UnsafeScanner<R> {
     reader: R,
@@ -34,764 +33,760 @@ impl<R: io::BufRead> UnsafeScanner<R> {
     }
 }
 
-#[derive(Clone, Debug)]
-struct Disc {
-    center: (f64, f64),
-    radius: f64,
+extern "C" {
+    fn rand() -> u32;
 }
 
-impl Disc {
-    pub fn new(center: (f64, f64), radius: f64) -> Self {
-        Self { center, radius }
-    }
-
-    pub fn exist_common_support_line(&self, other: &Disc) -> bool {
-        let (x1, y1, r1) = (self.center.0, self.center.1, self.radius);
-        let (x2, y2, r2) = (other.center.0, other.center.1, other.radius);
-        let square = (x1 - x2).powi(2) + (y1 - y2).powi(2);
-
-        square > (r1 - r2).powi(2)
-    }
-
-    pub fn compute_common_support_line_to(&self, other: &Disc) -> Edge {
-        let (x1, y1, r1) = (self.center.0, self.center.1, self.radius);
-        let (x2, y2, r2) = (other.center.0, other.center.1, other.radius);
-
-        let square = (x1 - x2).powi(2) + (y1 - y2).powi(2);
-        let d = square.sqrt();
-        let vx = (x2 - x1) / d;
-        let vy = (y2 - y1) / d;
-
-        let c = (r1 - r2) / d;
-        let h = (1.0 - c.powi(2)).max(0.0).sqrt();
-
-        let nx = vx * c - vy * h;
-        let ny = vx * h + vy * c;
-
-        Edge {
-            p1: Point {
-                x: x1 + r1 * nx,
-                y: y1 + r1 * ny,
-            },
-            p2: Point {
-                x: x2 + r2 * nx,
-                y: y2 + r2 * ny,
-            },
-        }
-    }
-
-    pub fn compute_parallel_support_line(&self, line: &Edge) -> Edge {
-        let line_unit = line.normalize().unit();
-        let p = Point {
-            x: self.center.0 - self.radius * (line_unit.p2.x - line_unit.p1.x),
-            y: self.center.1 - self.radius * (line_unit.p2.y - line_unit.p1.y),
-        };
-        let od = Edge {
-            p1: Point { x: p.x, y: p.y },
-            p2: Point {
-                x: self.center.0,
-                y: self.center.1,
-            },
-        }
-        .normalize();
-
-        Edge {
-            p1: od.p2,
-            p2: od.p1,
-        }
-    }
-
-    fn calculate_ccw(&self, p1: Point, p2: Point, p3: Point) -> i64 {
-        let (x1, y1) = (p1.x as i64, p1.y as i64);
-        let (x2, y2) = (p2.x as i64, p2.y as i64);
-        let (x3, y3) = (p3.x as i64, p3.y as i64);
-
-        let res = (x2 - x1) * (y3 - y1) - (x3 - x1) * (y2 - y1);
-        if res > 0 {
-            1
-        } else if res < 0 {
-            -1
-        } else {
-            0
-        }
-    }
-
-    fn get_points(&self, other: &Disc, points: &mut Vec<Point>, val: f64) {
-        let sign = |val: f64| -> i64 {
-            if val.abs() < 1e-10 {
-                0
-            } else if val > 0.0 {
-                1
-            } else {
-                -1
-            }
-        };
-        let calculate_ab = |x1: f64, y1: f64, x2: f64, y2: f64| -> Point {
-            let a = (y1 - y2) / (x1 - x2);
-            let b = x1 * a + y1;
-
-            Point { x: a, y: b }
-        };
-
-        let (x1, y1, r1) = (self.center.0, self.center.1, self.radius);
-        let (x2, y2, r2) = (other.center.0, other.center.1, other.radius);
-
-        if val == 0.0 {
-            if r1 + y1 == r2 + y2 {
-                points.push(Point { x: x1, y: r1 + y1 });
-                points.push(Point { x: x2, y: r2 + y2 });
-            }
-
-            if y1 - r1 == y2 - r2 {
-                points.push(Point { x: x1, y: y1 - r1 });
-                points.push(Point { x: x2, y: y2 - r2 });
-            }
-
-            return;
-        }
-
-        if r1 == r2 {
-            let val1 = val;
-            let val2 = r1 * (val * val + 1.0).sqrt() + y1 - val * x1;
-            let val3 = val;
-            let val4 = r2 * (val * val + 1.0).sqrt() + y2 - val * x2;
-            let val5 = -1.0 / val;
-            let val6 = -val5 * x1 + y1;
-            let val7 = -1.0 / val;
-            let val8 = -val7 * x2 + y2;
-
-            points.push(calculate_ab(val1, val2, val5, val6));
-            points.push(calculate_ab(val3, val4, val7, val8));
-
-            let val2 = -r1 * (val * val + 1.0).sqrt() + y1 - val * x1;
-            let val4 = -r2 * (val * val + 1.0).sqrt() + y2 - val * x2;
-
-            points.push(calculate_ab(val1, val2, val5, val6));
-            points.push(calculate_ab(val3, val4, val7, val8));
-        }
-
-        if sign(r1 - r2) == sign(val * (x1 - x2) - (y1 - y2)) {
-            let val1 = val;
-            let val2 = r1 * (val * val + 1.0).sqrt() + y1 - val * x1;
-            let val3 = val;
-            let val4 = r2 * (val * val + 1.0).sqrt() + y2 - val * x2;
-            let val5 = -1.0 / val;
-            let val6 = -val5 * x1 + y1;
-            let val7 = -1.0 / val;
-            let val8 = -val7 * x2 + y2;
-
-            points.push(calculate_ab(val1, val2, val5, val6));
-            points.push(calculate_ab(val3, val4, val7, val8));
-        }
-
-        if sign(r2 - r1) == sign(val * (x1 - x2) - (y1 - y2)) {
-            let val1 = val;
-            let val2 = -r1 * (val * val + 1.0).sqrt() + y1 - val * x1;
-            let val3 = val;
-            let val4 = -r2 * (val * val + 1.0).sqrt() + y2 - val * x2;
-            let val5 = -1.0 / val;
-            let val6 = -val5 * x1 + y1;
-            let val7 = -1.0 / val;
-            let val8 = -val7 * x2 + y2;
-
-            points.push(calculate_ab(val1, val2, val5, val6));
-            points.push(calculate_ab(val3, val4, val7, val8));
-        }
-    }
-
-    pub fn calculate_angle(&self, other: &Disc) -> (f64, Vec<Point>) {
-        let (x1, y1, r1) = (self.center.0, self.center.1, self.radius);
-        let (x2, y2, r2) = (other.center.0, other.center.1, other.radius);
-        let mut points = Vec::new();
-
-        if (x1 - x2).powi(2) + (y1 - y2).powi(2) <= (r1 - r2).powi(2) {
-            return (f64::MAX / 2.0, Vec::new());
-        }
-
-        if x1 == x2 && y1 == y2 && r1 == r2 {
-            return (f64::MAX / 2.0, Vec::new());
-        }
-
-        if x1 + r1 == x2 + r2 {
-            points.push(Point { x: x1 + r1, y: y1 });
-            points.push(Point { x: x2 + r2, y: y2 });
-        }
-
-        if x1 - r1 == x2 - r2 {
-            points.push(Point { x: x1 - r1, y: y1 });
-            points.push(Point { x: x2 - r2, y: y2 });
-        }
-
-        let val1 = (r1 - r2).powi(2) - (x1 - x2).powi(2);
-        let val2 = 2.0 * (x1 - x2) * (y1 - y2);
-        let val3 = (r1 - r2).powi(2) - (y1 - y2).powi(2);
-
-        if val1 == 0.0 {
-            if val2 != 0.0 {
-                self.get_points(other, &mut points, -val3 / val2);
-            }
-        } else if val2 * val2 / 4.0 >= val1 * val3 {
-            let val = (-val2 + (val2 * val2 - 4.0 * val1 * val3).sqrt()) / (2.0 * val1);
-            self.get_points(other, &mut points, val);
-            let val = (-val2 - (val2 * val2 - 4.0 * val1 * val3).sqrt()) / (2.0 * val1);
-            self.get_points(other, &mut points, val);
-        }
-
-        while points.len() > 4 {
-            points.pop();
-        }
-
-        let mut points_new = Vec::new();
-
-        if points.len() == 4 {
-            if self.calculate_ccw(points[0], points[1], points[2]) == -1 {
-                points_new.push(points[0]);
-                points_new.push(points[1]);
-            } else {
-                points_new.push(points[2]);
-                points_new.push(points[3]);
-            }
-        } else if points.len() == 2 {
-            points_new.push(points[0]);
-            points_new.push(points[1]);
-        }
-
-        points = points_new;
-
-        if points[0].x == points[1].x {
-            if points[0].y < points[1].y {
-                return (1.5 * std::f64::consts::PI, points);
-            } else {
-                return (0.5 * std::f64::consts::PI, points);
-            }
-        }
-
-        if points[0].y == points[1].y {
-            if points[0].x < points[1].x {
-                return (2.0 * std::f64::consts::PI, points);
-            } else {
-                return (std::f64::consts::PI, points);
-            }
-        }
-
-        let val = ((points[1].y - points[0].y) / (points[1].x - points[0].x)).abs();
-
-        if points[0].x < points[1].x && points[0].y < points[1].y {
-            (2.0 * std::f64::consts::PI - val.atan(), points)
-        } else if points[0].x > points[1].x && points[0].y < points[1].y {
-            (std::f64::consts::PI + val.atan(), points)
-        } else if points[0].x < points[1].x && points[0].y > points[1].y {
-            (val.atan(), points)
-        } else {
-            (std::f64::consts::PI - val.atan(), points)
-        }
-    }
-}
-
-impl Eq for Disc {}
-
-impl PartialEq for Disc {
-    fn eq(&self, other: &Self) -> bool {
-        self.center == other.center && self.radius == other.radius
-    }
-}
-
-impl Ord for Disc {
-    fn cmp(&self, other: &Self) -> Ordering {
-        if self.radius < other.radius {
-            Less
-        } else if self.radius > other.radius {
-            Greater
-        } else {
-            Equal
-        }
-    }
-}
-
-impl PartialOrd for Disc {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        if self.radius < other.radius {
-            Some(Less)
-        } else if self.radius > other.radius {
-            Some(Greater)
-        } else {
-            Some(Equal)
-        }
-    }
-}
-
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(Default, Copy, Clone, PartialEq)]
 struct Point {
     x: f64,
     y: f64,
 }
 
-impl Sub for Point {
-    type Output = Self;
-
-    fn sub(self, other: Self) -> Self::Output {
+impl Point {
+    fn new(point: Point) -> Self {
         Self {
+            x: point.x,
+            y: point.y,
+        }
+    }
+
+    fn magnitude(&self) -> f64 {
+        self.x.hypot(self.y)
+    }
+
+    fn get_unit_vector(&self) -> Point {
+        let magnitude = self.magnitude();
+
+        Point {
+            x: self.x / magnitude,
+            y: self.y / magnitude,
+        }
+    }
+}
+
+impl std::ops::Add for Point {
+    type Output = Point;
+
+    fn add(self, other: Point) -> Point {
+        Point {
+            x: self.x + other.x,
+            y: self.y + other.y,
+        }
+    }
+}
+
+impl std::ops::Sub for Point {
+    type Output = Point;
+
+    fn sub(self, other: Point) -> Point {
+        Point {
             x: self.x - other.x,
             y: self.y - other.y,
         }
     }
 }
 
-#[derive(Clone, Debug, Default)]
-struct Edge {
-    p1: Point,
-    p2: Point,
+impl std::ops::Mul for Point {
+    type Output = f64;
+
+    fn mul(self, other: Point) -> f64 {
+        self.x * other.y - self.y * other.x
+    }
 }
 
-fn radians_to_degrees(radians: f64) -> f64 {
-    radians * 180.0 / std::f64::consts::PI
-}
+impl std::ops::Neg for Point {
+    type Output = Point;
 
-impl Edge {
-    fn normalize(&self) -> Self {
-        let (x1, y1) = (self.p1.x, self.p1.y);
-        let (x2, y2) = (self.p2.x, self.p2.y);
-        let dx = x2 - x1;
-        let dy = y2 - y1;
-        let d = (dx * dx + dy * dy).sqrt();
-
-        Self {
-            p1: Point {
-                x: x1 / d,
-                y: y1 / d,
-            },
-            p2: Point {
-                x: x2 / d,
-                y: y2 / d,
-            },
-        }
-    }
-
-    fn unit(&self) -> Self {
-        let (x1, y1) = (self.p1.x, self.p1.y);
-        let (x2, y2) = (self.p2.x, self.p2.y);
-        let dx = x2 - x1;
-        let dy = y2 - y1;
-        let d = (dx * dx + dy * dy).sqrt();
-
-        Self {
-            p1: Point { x: 0.0, y: 0.0 },
-            p2: Point {
-                x: dx / d,
-                y: dy / d,
-            },
-        }
-    }
-
-    fn angle(&self) -> f64 {
-        let dx = self.p2.x - self.p1.x;
-        let dy = self.p2.y - self.p1.y;
-        let theta = radians_to_degrees(-dy.atan2(dx));
-        let theta_norm = if theta < 0.0 { theta + 360.0 } else { theta };
-
-        if (theta_norm - 360.0).abs() < 1e-12 {
-            0.0
-        } else {
-            theta_norm
-        }
-    }
-
-    fn angle_to(&self, other: &Self) -> f64 {
-        let a1 = self.angle();
-        let a2 = other.angle();
-        let delta = a2 - a1;
-        let delta_norm = if delta < 0.0 { delta + 360.0 } else { delta };
-
-        if (delta_norm - 360.0).abs() < 1e-12 {
-            0.0
-        } else {
-            delta_norm
+    fn neg(self) -> Point {
+        Point {
+            x: -self.x,
+            y: -self.y,
         }
     }
 }
 
-#[derive(Debug)]
-struct ConvexHull {
-    discs: Vec<Disc>,
+#[derive(Default)]
+struct Line {
+    start: Point,
+    end: Point,
 }
 
-impl ConvexHull {
-    fn length(&self) -> f64 {
-        if self.discs.len() == 1 {
-            return 2.0 * std::f64::consts::PI * self.discs[0].radius;
+impl Line {
+    fn new(start: Point, end: Point) -> Self {
+        Self { start, end }
+    }
+
+    fn signed_distance(&self, point: Point) -> f64 {
+        let point_vector = Point::new(point - self.start);
+        let line_vector = Point::new(self.end - self.start);
+
+        line_vector * point_vector / line_vector.magnitude()
+    }
+
+    fn evaluate_vector(&self) -> Point {
+        self.end - self.start
+    }
+
+    fn get_normal_vector(&self) -> Point {
+        let dir_vector = self.evaluate_vector();
+
+        Point {
+            x: -dir_vector.y,
+            y: dir_vector.x,
         }
+    }
 
-        let mut set = BTreeSet::new();
-        let mut circles = Vec::new();
+    fn make_perpendicular_line(&self, passing_point: &Point) -> Line {
+        let dir_vector = self.get_normal_vector();
 
-        for i in 0..self.discs.len() {
-            let j = (i + 1) % self.discs.len();
-
-            if set
-                .iter()
-                .find(|(a, b)| *a == self.discs[i] && *b == self.discs[j])
-                .is_some()
-            {
-                break;
-            }
-
-            set.insert((self.discs[i].clone(), self.discs[j].clone()));
-            circles.push(self.discs[i].clone());
-        }
-
-        println!("{:?}", self.discs);
-        println!("{:?}", circles);
-
-        let mut ret = 0.0;
-
-        for j in 0..circles.len() {
-            let i = (j + circles.len() - 1) % circles.len();
-            let k = (j + 1) % circles.len();
-
-            let (angle1, _) = circles[i].calculate_angle(&circles[j]);
-            let (angle2, points2) = circles[j].calculate_angle(&circles[k]);
-            let mut angle = angle2 - angle1;
-
-            if angle < 0.0 {
-                angle += 2.0 * std::f64::consts::PI;
-            }
-
-            println!(
-                "i : {} {} {} {}",
-                circles[i].center.0,
-                circles[i].center.1,
-                circles[i].radius,
-                angle1 / std::f64::consts::PI * 180.0
-            );
-            println!(
-                "j : {} {} {} {}",
-                circles[j].center.0,
-                circles[j].center.1,
-                circles[j].radius,
-                angle / std::f64::consts::PI * 180.0
-            );
-            println!(
-                "k : {} {} {} {}",
-                circles[k].center.0,
-                circles[k].center.1,
-                circles[k].radius,
-                angle2 / std::f64::consts::PI * 180.0
-            );
-
-            ret += angle * circles[j].radius;
-
-            if !points2.is_empty() {
-                ret += (points2[0].x - points2[1].x).hypot(points2[0].y - points2[1].y);
-            }
-        }
-
-        ret
+        Line::new(*passing_point, *passing_point + dir_vector)
     }
 }
 
-#[derive(Default, Debug)]
-struct ConvexHullAlgorithm {
-    discs: Vec<Disc>,
+struct Disk {
+    id: usize,
+    center: Point,
+    radius: f64,
 }
 
-impl ConvexHullAlgorithm {
-    pub fn add_disc(&mut self, disc: Disc) {
-        self.discs.push(disc);
-    }
+impl Disk {
+    fn contain(&self, disk: &Disk, tolerance: f64) -> bool {
+        let center_to_center = Point::new(disk.center - self.center);
+        let distance = center_to_center.magnitude();
 
-    pub fn sort(&mut self) {
-        self.discs.sort_by(|a, b| {
-            if a.center.1 + a.radius == b.center.1 + b.radius {
-                a.center.0.partial_cmp(&b.center.0).unwrap()
-            } else {
-                (a.center.1 + a.radius)
-                    .partial_cmp(&(b.center.1 + b.radius))
-                    .unwrap()
-            }
-        });
-    }
-
-    pub fn find(&self, start: usize, end: usize) -> ConvexHull {
-        if start == end {
-            return ConvexHull {
-                discs: vec![self.discs[start].clone()],
-            };
-        }
-
-        let mid = (start + end) / 2;
-        println!("start: {}, end: {}, mid: {}", start, end, mid);
-        let p = self.find(start, mid);
-        let q = self.find(mid + 1, end);
-
-        self.merge(&p, &q)
+        self.radius >= (disk.radius + distance) - tolerance
     }
 }
 
-impl ConvexHullAlgorithm {
-    fn triangle_orientation(&self, p: &Point, q: &Point, r: &Point) -> f64 {
-        (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x)
+struct InputForFindHull {
+    disks: Vec<usize>,
+    pre_apex_disk: usize,
+    post_apex_disk: usize,
+    hull_point_of_pre_apex_disk: Point,
+    hull_point_of_post_apex_disk: Point,
+}
+
+#[derive(Default)]
+struct QuickhullDisk {
+    disks: Vec<Disk>,
+}
+
+impl QuickhullDisk {
+    pub fn new(disks: Vec<Disk>) -> Self {
+        Self { disks }
     }
 
-    fn dom(&self, line_p: &Edge, line_q: &Edge) -> bool {
-        let to = self.triangle_orientation(&line_p.p1, &line_q.p1, &line_p.p2);
-
-        if to < 0.0 {
-            false
-        } else if to > 0.0 {
-            true
-        } else {
-            let direction = line_p.p2.y - line_p.p1.y;
-
-            if direction > 0.0 {
-                if line_p.p1.y > line_q.p2.y {
-                    true
-                } else {
-                    false
-                }
-            } else if direction < 0.0 {
-                if line_p.p1.y > line_q.p2.y {
-                    false
-                } else {
-                    true
-                }
-            } else {
-                let direction_x = line_p.p2.x - line_p.p1.x;
-
-                if direction_x > 0.0 {
-                    if line_p.p1.x > line_q.p2.x {
-                        true
-                    } else {
-                        false
-                    }
-                } else {
-                    if line_p.p1.x > line_q.p2.x {
-                        false
-                    } else {
-                        true
-                    }
-                }
-            }
+    pub fn find_hull_disks(&mut self) -> Vec<usize> {
+        if self.disks.len() == 1 {
+            return vec![0];
         }
+
+        let mut high_left_extreme_point_p = Point::default();
+        let mut low_right_extreme_point_q = Point::default();
+        let mut disk_having_high_left_point_p = 0;
+        let mut disk_having_low_right_point_q = 0;
+
+        self.find_high_left_n_low_right_extreme_points_and_their_disks_to_divide_disk_set(
+            &mut high_left_extreme_point_p,
+            &mut low_right_extreme_point_q,
+            &mut disk_having_high_left_point_p,
+            &mut disk_having_low_right_point_q,
+        );
+
+        let mut initial_expanded_non_positive_disks_d_right = Vec::new();
+        let mut initial_expanded_non_positive_disks_d_left = Vec::new();
+        let mut oriented_line_segment_base_line_pq =
+            Line::new(high_left_extreme_point_p, low_right_extreme_point_q);
+
+        self.divide_input_disks_into_two_initial_subsets(
+            &mut oriented_line_segment_base_line_pq,
+            &mut initial_expanded_non_positive_disks_d_right,
+            &mut initial_expanded_non_positive_disks_d_left,
+        );
+
+        let mut stack_for_finding_hull = Vec::new();
+
+        self.prepare_and_insert_input_data_for_finding_hull_to_stack(
+            &initial_expanded_non_positive_disks_d_left,
+            &mut disk_having_low_right_point_q,
+            &mut disk_having_high_left_point_p,
+            &mut low_right_extreme_point_q,
+            &mut high_left_extreme_point_p,
+            &mut stack_for_finding_hull,
+        );
+        self.prepare_and_insert_input_data_for_finding_hull_to_stack(
+            &initial_expanded_non_positive_disks_d_right,
+            &mut disk_having_high_left_point_p,
+            &mut disk_having_low_right_point_q,
+            &mut high_left_extreme_point_p,
+            &mut low_right_extreme_point_q,
+            &mut stack_for_finding_hull,
+        );
+
+        let mut hull_disks = Vec::new();
+
+        self.find_hull_disks_by_iteration(&mut stack_for_finding_hull, &mut hull_disks);
+
+        hull_disks
     }
 
-    fn add(&self, list: &mut Vec<Disc>, disc: &Disc) -> bool {
-        if list.is_empty() || *list.last().unwrap() != *disc {
-            println!("list : {:?}", list);
-            println!("add disc to list : {:?}", disc);
-            list.push(disc.clone());
-            println!("after add list : {:?}", list);
-            true
-        } else {
-            false
-        }
-    }
-
-    fn succ(&self, list: &Vec<Disc>, idx: usize) -> usize {
-        if idx + 1 < list.len() {
-            idx + 1
-        } else if list.len() > 1 {
-            1
-        } else {
-            0
-        }
-    }
-
-    fn merge(&self, lch: &ConvexHull, rch: &ConvexHull) -> ConvexHull {
-        let mut list = Vec::new();
-        let end_p = lch.discs.len();
-        let end_q = rch.discs.len();
-        let mut disc_idx_p = 0;
-        let mut disc_idx_q = 0;
-        let mut i = 0;
-        let mut j = 0;
-
-        let mut line_star = Edge {
-            p1: Point { x: 0.0, y: 0.0 },
-            p2: Point { x: 0.0, y: 100.0 },
-        };
-        let mut line_p = lch.discs[disc_idx_p].compute_parallel_support_line(&line_star);
-        let mut line_q = rch.discs[disc_idx_q].compute_parallel_support_line(&line_star);
-
-        println!("lch : {:?}", lch);
-        println!("rch : {:?}", rch);
-        println!("dom : {}", self.dom(&line_p, &line_q));
-
-        while i < end_p || j < end_q {
-            if self.dom(&line_p, &line_q) {
-                self.add(&mut list, &lch.discs[disc_idx_p]);
-                self.advance(
-                    &mut line_star,
-                    &mut i,
-                    &mut disc_idx_p,
-                    &mut j,
-                    &mut disc_idx_q,
-                    &mut list,
-                    &lch.discs,
-                    &rch.discs,
-                );
-            } else {
-                self.add(&mut list, &rch.discs[disc_idx_q]);
-                self.advance(
-                    &mut line_star,
-                    &mut j,
-                    &mut disc_idx_q,
-                    &mut i,
-                    &mut disc_idx_p,
-                    &mut list,
-                    &rch.discs,
-                    &lch.discs,
-                );
-            }
-
-            line_p = lch.discs[disc_idx_p].compute_parallel_support_line(&line_star);
-            line_q = rch.discs[disc_idx_q].compute_parallel_support_line(&line_star);
-        }
-
-        if list.len() > 1 && list[0] == *list.last().unwrap() {
-            list.pop();
-        }
-
-        ConvexHull { discs: list }
-    }
-
-    fn advance(
-        &self,
-        line_star: &mut Edge,
-        idx_x: &mut usize,
-        idx_disc_x: &mut usize,
-        idx_y: &mut usize,
-        idx_disc_y: &mut usize,
-        list: &mut Vec<Disc>,
-        list_x: &Vec<Disc>,
-        list_y: &Vec<Disc>,
+    fn find_high_left_n_low_right_extreme_points_and_their_disks_to_divide_disk_set(
+        &mut self,
+        high_left_extreme_point_p: &mut Point,
+        low_right_extreme_point_q: &mut Point,
+        disk_having_high_left_point_p: &mut usize,
+        disk_having_low_right_point_q: &mut usize,
     ) {
-        let mut line_x_succ = Edge::default();
-        let mut line_y_succ = Edge::default();
+        self.find_high_left_extreme_point_n_its_disk(
+            high_left_extreme_point_p,
+            disk_having_high_left_point_p,
+        );
+        self.find_low_right_extreme_point_n_its_disk(
+            low_right_extreme_point_q,
+            disk_having_low_right_point_q,
+        );
+    }
 
-        let mut a1 = 361.0;
-        let mut a2 = 361.0;
-        let mut a3 = 361.0;
-        let mut a4 = 361.0;
+    fn find_high_left_extreme_point_n_its_disk(
+        &mut self,
+        high_left_extreme_point_p: &mut Point,
+        disk_having_high_left_point_p: &mut usize,
+    ) {
+        *disk_having_high_left_point_p = 0;
+        let mut left_most_x = self.disks[*disk_having_high_left_point_p].center.x
+            - self.disks[*disk_having_high_left_point_p].radius;
 
-        if list_x[*idx_disc_x].exist_common_support_line(&list_y[*idx_disc_y]) {
-            let line_xy = list_x[*idx_disc_x].compute_common_support_line_to(&list_y[*idx_disc_y]);
-            let line_yx = list_y[*idx_disc_y].compute_common_support_line_to(&list_x[*idx_disc_x]);
-            a1 = line_star.angle_to(&line_xy);
-            a4 = line_star.angle_to(&line_yx);
-        }
+        for (idx, disk) in self.disks.iter().skip(1).enumerate() {
+            let left_most_x_of_cur_disk = disk.center.x - disk.radius;
 
-        let x_succ = list_x[self.succ(list_x, *idx_x)].clone();
-        let y_succ = list_y[self.succ(list_y, *idx_y)].clone();
-
-        if list_x.len() == 1 && *idx_x == 0 {
-            *idx_x += 1;
-        } else if *idx_x < list_x.len() {
-            line_x_succ = list_x[*idx_disc_x].compute_common_support_line_to(&x_succ);
-            a2 = line_star.angle_to(&line_x_succ);
-        }
-
-        if list_y.len() == 1 && *idx_y == 0 {
-            *idx_y += 1;
-        } else if *idx_y < list_y.len() {
-            line_y_succ = list_y[*idx_disc_y].compute_common_support_line_to(&y_succ);
-            a3 = line_star.angle_to(&line_y_succ);
-        }
-
-        println!("a1 : {}, a2 : {}, a3 : {}, a4 : {}", a1, a2, a3, a4);
-
-        // if a1 == a1.min(a2.min(a3)) {
-        //     let disc_y = list_y[*idx_disc_y].clone();
-
-        //     if list.is_empty() || *list.last().unwrap() != disc_y {
-        //         if list.len() >= 2 && list[0] == *list.last().unwrap() && list[1] == disc_y {
-        //             return;
-        //         }
-
-        //         list.push(disc_y.clone());
-        //         *idx_y += 1;
-        //     }
-        // }
-
-        // if a4 == a4.min(a2.min(a3)) {
-        //     let disc_x = list_x[*idx_disc_x].clone();
-
-        //     if list.is_empty() || *list.last().unwrap() != disc_x {
-        //         if list.len() >= 2 && list[0] == *list.last().unwrap() && list[1] == disc_x {
-        //             return;
-        //         }
-
-        //         list.push(disc_x.clone());
-        //         *idx_x += 1;
-        //     }
-        // }
-
-        if a1 < a4 {
-            let disc_x = list_x[*idx_disc_x].clone();
-            let disc_y = list_y[*idx_disc_y].clone();
-
-            if a1 < a2.min(a3) {
-                if list.is_empty() || *list.last().unwrap() != disc_y {
-                    if list.len() >= 2 && list[0] == *list.last().unwrap() && list[1] == disc_y {
-                        return;
+            if left_most_x_of_cur_disk < left_most_x {
+                left_most_x = left_most_x_of_cur_disk;
+                *disk_having_high_left_point_p = idx;
+            } else if left_most_x_of_cur_disk == left_most_x {
+                if disk.center.y > self.disks[*disk_having_high_left_point_p].center.y {
+                    *disk_having_high_left_point_p = idx;
+                } else if disk.center.y == self.disks[*disk_having_high_left_point_p].center.y {
+                    if disk.radius > self.disks[*disk_having_high_left_point_p].radius {
+                        *disk_having_high_left_point_p = idx;
                     }
-
-                    list.push(disc_y.clone());
-                    *idx_y += 1;
                 }
             }
+        }
 
-            if a4 < a2.min(a3) {
-                if list.is_empty() || *list.last().unwrap() != disc_x {
-                    if list.len() >= 2 && list[0] == *list.last().unwrap() && list[1] == disc_x {
-                        return;
+        *high_left_extreme_point_p = Point {
+            x: left_most_x,
+            y: self.disks[*disk_having_high_left_point_p].center.y,
+        };
+    }
+
+    fn find_low_right_extreme_point_n_its_disk(
+        &mut self,
+        low_right_extreme_point_q: &mut Point,
+        disk_having_low_right_point_q: &mut usize,
+    ) {
+        *disk_having_low_right_point_q = 0;
+        let mut right_most_x = self.disks[*disk_having_low_right_point_q].center.x
+            + self.disks[*disk_having_low_right_point_q].radius;
+
+        for (idx, disk) in self.disks.iter().skip(1).enumerate() {
+            let right_most_x_of_cur_disk = disk.center.x + disk.radius;
+
+            if right_most_x_of_cur_disk > right_most_x {
+                right_most_x = right_most_x_of_cur_disk;
+                *disk_having_low_right_point_q = idx;
+            } else if right_most_x_of_cur_disk == right_most_x {
+                if disk.center.y < self.disks[*disk_having_low_right_point_q].center.y {
+                    *disk_having_low_right_point_q = idx;
+                } else if disk.center.y == self.disks[*disk_having_low_right_point_q].center.y {
+                    if disk.radius > self.disks[*disk_having_low_right_point_q].radius {
+                        *disk_having_low_right_point_q = idx;
                     }
-
-                    list.push(disc_x.clone());
-                    *idx_x += 1;
                 }
+            }
+        }
+
+        *low_right_extreme_point_q = Point {
+            x: right_most_x,
+            y: self.disks[*disk_having_low_right_point_q].center.y,
+        };
+    }
+
+    fn divide_input_disks_into_two_initial_subsets(
+        &mut self,
+        oriented_line_segment_base_line_pq: &mut Line,
+        initial_expanded_non_positive_disks_d_right: &mut Vec<usize>,
+        initial_expanded_non_positive_disks_d_left: &mut Vec<usize>,
+    ) {
+        for (idx, disk) in self.disks.iter().enumerate() {
+            if self.this_disk_is_a_member_of_expanded_non_positive_set_wrt_line(
+                disk,
+                oriented_line_segment_base_line_pq,
+                true,
+            ) {
+                initial_expanded_non_positive_disks_d_right.push(idx);
+            } else if self.this_disk_is_a_member_of_expanded_non_negative_set_wrt_line(
+                disk,
+                oriented_line_segment_base_line_pq,
+                true,
+            ) {
+                initial_expanded_non_positive_disks_d_left.push(idx);
+            }
+        }
+    }
+
+    fn this_disk_is_a_member_of_expanded_non_positive_set_wrt_line(
+        &self,
+        candidate_disk: &Disk,
+        oriented_line_segment: &mut Line,
+        including_on_positive: bool,
+    ) -> bool {
+        if including_on_positive {
+            oriented_line_segment.signed_distance(candidate_disk.center)
+                >= -candidate_disk.radius - 1e-6
+        } else {
+            oriented_line_segment.signed_distance(candidate_disk.center)
+                > -candidate_disk.radius - 1e-6
+        }
+    }
+
+    fn this_disk_is_a_member_of_expanded_non_negative_set_wrt_line(
+        &self,
+        candidate_disk: &Disk,
+        oriented_line_segment: &mut Line,
+        including_on_negative: bool,
+    ) -> bool {
+        if including_on_negative {
+            oriented_line_segment.signed_distance(candidate_disk.center)
+                <= candidate_disk.radius + 1e-6
+        } else {
+            oriented_line_segment.signed_distance(candidate_disk.center)
+                < candidate_disk.radius + 1e-6
+        }
+    }
+
+    fn prepare_and_insert_input_data_for_finding_hull_to_stack(
+        &mut self,
+        disks: &Vec<usize>,
+        pre_apex_disk: &mut usize,
+        post_apex_disk: &mut usize,
+        hull_point_of_pre_apex_disk: &mut Point,
+        hull_point_of_post_apex_disk: &mut Point,
+        stack_for_finding_hull: &mut Vec<InputForFindHull>,
+    ) {
+        let input_for_find_hull = InputForFindHull {
+            disks: disks.clone(),
+            pre_apex_disk: *pre_apex_disk,
+            post_apex_disk: *post_apex_disk,
+            hull_point_of_pre_apex_disk: *hull_point_of_pre_apex_disk,
+            hull_point_of_post_apex_disk: *hull_point_of_post_apex_disk,
+        };
+
+        stack_for_finding_hull.push(input_for_find_hull);
+    }
+
+    fn find_hull_disks_by_iteration(
+        &mut self,
+        stack_for_finding_hull: &mut Vec<InputForFindHull>,
+        hull_disks: &mut Vec<usize>,
+    ) {
+        while !stack_for_finding_hull.is_empty() {
+            let mut input_of_current_step = stack_for_finding_hull.pop().unwrap();
+            let (
+                mut disks_d,
+                mut pre_apex_disk_dp,
+                mut post_apex_disk_dq,
+                mut hull_point_p,
+                mut hull_point_q,
+            ) = (
+                &mut input_of_current_step.disks,
+                &mut input_of_current_step.pre_apex_disk,
+                &mut input_of_current_step.post_apex_disk,
+                &mut input_of_current_step.hull_point_of_pre_apex_disk,
+                &mut input_of_current_step.hull_point_of_post_apex_disk,
+            );
+
+            let num_of_disk_in_d = disks_d.len();
+
+            if num_of_disk_in_d == 1 {
+                hull_disks.push(*pre_apex_disk_dp);
+            } else if num_of_disk_in_d == 2 && pre_apex_disk_dp != post_apex_disk_dq {
+                hull_disks.push(*pre_apex_disk_dp);
+                hull_disks.push(*post_apex_disk_dq);
+            } else {
+                let mut disks_d_front_edge = Vec::new();
+                let mut disks_d_back_edge = Vec::new();
+
+                let mut triangle_apex_x = Point::default();
+                let mut apex_disk_dx = 0;
+
+                let oriented_line_segment_base_edge_pq = Line::new(*hull_point_p, *hull_point_q);
+                let mut candidate_apex_n_disk_pairs = Vec::new();
+
+                self.find_the_highest_triangle_apex_and_the_apex_disk_wrt_this_oriented_line_segment(&disks_d, &oriented_line_segment_base_edge_pq, &mut candidate_apex_n_disk_pairs, false, None, None);
+
+                if candidate_apex_n_disk_pairs.len() == 1 {
+                    triangle_apex_x = candidate_apex_n_disk_pairs[0].0;
+                    apex_disk_dx = candidate_apex_n_disk_pairs[0].1;
+                } else {
+                    self.pick_one_as_triangle_apex_and_apex_disk_among_disks_with_identical_height_and_remove_disks_contained_in_others_from_input_disks_if_exist(&candidate_apex_n_disk_pairs, &mut triangle_apex_x, &mut apex_disk_dx, &mut disks_d);
+                }
+
+                let oriented_line_segment_front_edge_px = Line::new(*hull_point_p, triangle_apex_x);
+                let oriented_line_segment_back_edge_xq = Line::new(triangle_apex_x, *hull_point_q);
+
+                self.find_expanded_non_positive_disks_wrt_oriented_line_segment(
+                    &disks_d,
+                    &oriented_line_segment_front_edge_px,
+                    &pre_apex_disk_dp,
+                    &apex_disk_dx,
+                    &mut disks_d_front_edge,
+                    true,
+                );
+                self.find_expanded_non_positive_disks_wrt_oriented_line_segment(
+                    &disks_d,
+                    &oriented_line_segment_back_edge_xq,
+                    &apex_disk_dx,
+                    &post_apex_disk_dq,
+                    &mut disks_d_back_edge,
+                    true,
+                );
+
+                if self.triangle_filter_is_sliver(
+                    disks_d.len(),
+                    disks_d_front_edge.len(),
+                    disks_d_back_edge.len(),
+                    &pre_apex_disk_dp,
+                    &post_apex_disk_dq,
+                ) {
+                    disks_d_front_edge.clear();
+                    disks_d_back_edge.clear();
+
+                    self.regularize_sliver_triangle_and_repivot_disks();
+                }
+
+                self.prepare_and_insert_input_data_for_finding_hull_to_stack(
+                    &disks_d_back_edge,
+                    &mut apex_disk_dx,
+                    &mut post_apex_disk_dq,
+                    &mut triangle_apex_x,
+                    &mut hull_point_q,
+                    stack_for_finding_hull,
+                );
+                self.prepare_and_insert_input_data_for_finding_hull_to_stack(
+                    &disks_d_front_edge,
+                    &mut pre_apex_disk_dp,
+                    &mut apex_disk_dx,
+                    &mut hull_point_p,
+                    &mut triangle_apex_x,
+                    stack_for_finding_hull,
+                );
+            }
+        }
+
+        hull_disks.dedup();
+    }
+
+    fn find_the_highest_triangle_apex_and_the_apex_disk_wrt_this_oriented_line_segment(
+        &mut self,
+        disks_d: &Vec<usize>,
+        oriented_line_segment_base_edge_pq: &Line,
+        apex_n_disk_pairs: &mut Vec<(Point, usize)>,
+        oriented_line_is_not_negative_support_of_dp_n_dq: bool,
+        pre_apex_disk_dp: Option<usize>,
+        post_apex_disk_dq: Option<usize>,
+    ) {
+        let mut largest_max_perpendicular_distance_from_line_to_boundary_of_disk_among_disks = 0.0;
+
+        for disk in disks_d.iter() {
+            if oriented_line_is_not_negative_support_of_dp_n_dq
+                && pre_apex_disk_dp.is_some()
+                && ((pre_apex_disk_dp.is_some() && pre_apex_disk_dp.unwrap() == *disk)
+                    || (post_apex_disk_dq.is_some() && post_apex_disk_dq.unwrap() == *disk))
+            {
+                continue;
+            }
+
+            let max_perpendicular_distance_from_line_to_boundary_of_cur_disk = self.disks[*disk]
+                .radius
+                - oriented_line_segment_base_edge_pq.signed_distance(self.disks[*disk].center);
+
+            if max_perpendicular_distance_from_line_to_boundary_of_cur_disk
+                > largest_max_perpendicular_distance_from_line_to_boundary_of_disk_among_disks
+                    + 1e-6
+            {
+                largest_max_perpendicular_distance_from_line_to_boundary_of_disk_among_disks =
+                    max_perpendicular_distance_from_line_to_boundary_of_cur_disk;
+
+                apex_n_disk_pairs.clear();
+                let farthest_point_on_cur_disk_touching_tangent_line = self
+                    .find_the_fartest_point_of_disk_from_this_line(
+                        disk,
+                        oriented_line_segment_base_edge_pq,
+                    );
+                apex_n_disk_pairs.push((farthest_point_on_cur_disk_touching_tangent_line, *disk));
+            } else if (max_perpendicular_distance_from_line_to_boundary_of_cur_disk
+                - largest_max_perpendicular_distance_from_line_to_boundary_of_disk_among_disks)
+                .abs()
+                <= 1e-6
+            {
+                let farthest_point_on_cur_disk_touching_tangent_line = self
+                    .find_the_fartest_point_of_disk_from_this_line(
+                        disk,
+                        oriented_line_segment_base_edge_pq,
+                    );
+                apex_n_disk_pairs.push((farthest_point_on_cur_disk_touching_tangent_line, *disk));
+            }
+        }
+
+        if oriented_line_is_not_negative_support_of_dp_n_dq
+            && largest_max_perpendicular_distance_from_line_to_boundary_of_disk_among_disks.abs()
+                <= 1e-6
+        {
+            if pre_apex_disk_dp.is_some() {
+                apex_n_disk_pairs.push((
+                    oriented_line_segment_base_edge_pq.start,
+                    pre_apex_disk_dp.unwrap(),
+                ));
+            }
+
+            if post_apex_disk_dq.is_some() {
+                apex_n_disk_pairs.push((
+                    oriented_line_segment_base_edge_pq.end,
+                    post_apex_disk_dq.unwrap(),
+                ));
+            }
+        }
+    }
+
+    fn find_the_fartest_point_of_disk_from_this_line(
+        &mut self,
+        disk: &usize,
+        oriented_line: &Line,
+    ) -> Point {
+        let negative_direction = -oriented_line.get_normal_vector();
+        let unit_vector = negative_direction.get_unit_vector();
+        let farthest_point = Point {
+            x: unit_vector.x * self.disks[*disk].radius,
+            y: unit_vector.y * self.disks[*disk].radius,
+        } + self.disks[*disk].center;
+
+        farthest_point
+    }
+
+    fn pick_one_as_triangle_apex_and_apex_disk_among_disks_with_identical_height_and_remove_disks_contained_in_others_from_input_disks_if_exist(
+        &mut self,
+        apex_n_disk_pairs: &Vec<(Point, usize)>,
+        triangle_apex_x: &mut Point,
+        apex_disk_dx: &mut usize,
+        disks_d: &mut Vec<usize>,
+    ) {
+        let mut candidate_of_triangle_apex = Point::default();
+        let mut candidate_of_apex_disk = 0;
+
+        self.pick_one_as_triangle_apex_and_apex_disk(
+            apex_n_disk_pairs,
+            &mut candidate_of_triangle_apex,
+            &mut candidate_of_apex_disk,
+        );
+
+        let mut contained_disk_in_others = Vec::new();
+        *triangle_apex_x = candidate_of_triangle_apex;
+        *apex_disk_dx = self
+            .find_largest_apex_disk_containing_this_apex_disk_selected_from_candidates(
+                apex_n_disk_pairs,
+                &candidate_of_apex_disk,
+                &mut contained_disk_in_others,
+            );
+
+        if !contained_disk_in_others.is_empty() {
+            self.remove_contained_disks_from_input_disks(&contained_disk_in_others, disks_d);
+        }
+    }
+
+    fn pick_one_as_triangle_apex_and_apex_disk(
+        &mut self,
+        apex_n_disk_pairs: &Vec<(Point, usize)>,
+        triangle_apex_x: &mut Point,
+        apex_disk_dx: &mut usize,
+    ) {
+        if apex_n_disk_pairs.len() >= 2 {
+            let generated_number = unsafe { rand() as usize % apex_n_disk_pairs.len() };
+            *triangle_apex_x = apex_n_disk_pairs[generated_number].0;
+            *apex_disk_dx = apex_n_disk_pairs[generated_number].1;
+        } else {
+            *triangle_apex_x = apex_n_disk_pairs[0].0;
+            *apex_disk_dx = apex_n_disk_pairs[0].1;
+        }
+    }
+
+    fn find_largest_apex_disk_containing_this_apex_disk_selected_from_candidates(
+        &mut self,
+        candidate_triangle_apex_n_disk_pairs: &Vec<(Point, usize)>,
+        selected_apex_disk: &usize,
+        contained_disks_in_others: &mut Vec<usize>,
+    ) -> usize {
+        let mut largest_apex_disk_containing_candidate_apex_disk = *selected_apex_disk;
+
+        for (_, cur_apex_disk) in candidate_triangle_apex_n_disk_pairs.iter() {
+            if *cur_apex_disk == largest_apex_disk_containing_candidate_apex_disk {
+                continue;
+            }
+
+            if self.disks[*cur_apex_disk].contain(
+                &self.disks[largest_apex_disk_containing_candidate_apex_disk],
+                1e-6,
+            ) {
+                contained_disks_in_others.push(largest_apex_disk_containing_candidate_apex_disk);
+                largest_apex_disk_containing_candidate_apex_disk = *cur_apex_disk;
+            } else if self.disks[largest_apex_disk_containing_candidate_apex_disk]
+                .contain(&self.disks[*cur_apex_disk], 1e-6)
+            {
+                contained_disks_in_others.push(*cur_apex_disk);
+            }
+        }
+
+        largest_apex_disk_containing_candidate_apex_disk
+    }
+
+    fn remove_contained_disks_from_input_disks(
+        &mut self,
+        contained_disks_in_others: &Vec<usize>,
+        disks_d: &mut Vec<usize>,
+    ) {
+        for contained_disk in contained_disks_in_others.iter() {
+            let index = disks_d.iter().position(|&x| x == *contained_disk).unwrap();
+            disks_d.remove(index);
+        }
+    }
+
+    fn find_expanded_non_positive_disks_wrt_oriented_line_segment(
+        &mut self,
+        disks: &Vec<usize>,
+        oriented_line_segment_of_two_points_on_d1_n_d2: &Line,
+        disk_d1: &usize,
+        disk_d2: &usize,
+        output_disks: &mut Vec<usize>,
+        including_on_positive: bool,
+    ) {
+        if oriented_line_segment_of_two_points_on_d1_n_d2.start
+            != oriented_line_segment_of_two_points_on_d1_n_d2.end
+        {
+            for disk in disks.iter() {
+                if *disk == *disk_d1 || *disk == *disk_d2 {
+                    continue;
+                } else {
+                    if self.this_disk_is_a_member_of_expanded_non_positive_set_wrt_line_segment(
+                        disk,
+                        oriented_line_segment_of_two_points_on_d1_n_d2,
+                        including_on_positive,
+                    ) {
+                        output_disks.push(*disk);
+                    }
+                }
+            }
+        }
+
+        if *disk_d1 == *disk_d2 {
+            output_disks.push(*disk_d1);
+        } else {
+            output_disks.push(*disk_d1);
+            output_disks.push(*disk_d2);
+        }
+    }
+
+    fn this_disk_is_a_member_of_expanded_non_positive_set_wrt_line_segment(
+        &self,
+        candidate_disk: &usize,
+        oriented_line_segment: &Line,
+        including_on_positive: bool,
+    ) -> bool {
+        let oriented_line = oriented_line_segment;
+        let orthogonal_line_at_start_point =
+            oriented_line.make_perpendicular_line(&oriented_line_segment.start);
+        let orthogonal_line_at_end_point =
+            oriented_line.make_perpendicular_line(&oriented_line_segment.end);
+
+        let signed_distance_from_oriented_line_disk_center_point =
+            oriented_line.signed_distance(self.disks[*candidate_disk].center);
+
+        if signed_distance_from_oriented_line_disk_center_point
+            <= -self.disks[*candidate_disk].radius + 1e-6
+        {
+            if orthogonal_line_at_start_point.signed_distance(self.disks[*candidate_disk].center)
+                <= -self.disks[*candidate_disk].radius - 1e-6
+                && orthogonal_line_at_end_point.signed_distance(self.disks[*candidate_disk].center)
+                    > self.disks[*candidate_disk].radius + 1e-6
+            {
+                true
+            } else {
+                false
+            }
+        } else if (signed_distance_from_oriented_line_disk_center_point
+            > -self.disks[*candidate_disk].radius + 1e-6)
+            && (signed_distance_from_oriented_line_disk_center_point
+                < self.disks[*candidate_disk].radius - 1e-6)
+        {
+            if orthogonal_line_at_start_point.signed_distance(self.disks[*candidate_disk].center)
+                < -1e-6
+                && orthogonal_line_at_end_point.signed_distance(self.disks[*candidate_disk].center)
+                    > 1e-6
+            {
+                true
+            } else {
+                false
+            }
+        } else if including_on_positive
+            && (signed_distance_from_oriented_line_disk_center_point
+                - self.disks[*candidate_disk].radius)
+                .abs()
+                <= 1e-6
+        {
+            if orthogonal_line_at_start_point.signed_distance(self.disks[*candidate_disk].center)
+                < -1e-6
+                && orthogonal_line_at_end_point.signed_distance(self.disks[*candidate_disk].center)
+                    > 1e-6
+            {
+                true
+            } else {
+                false
             }
         } else {
-            let disc_x = list_x[*idx_disc_x].clone();
-            let disc_y = list_y[*idx_disc_y].clone();
-
-            if a4 < a2.min(a3) {
-                if list.is_empty() || *list.last().unwrap() != disc_x {
-                    if list.len() >= 2 && list[0] == *list.last().unwrap() && list[1] == disc_x {
-                        return;
-                    }
-
-                    list.push(disc_x.clone());
-                    *idx_x += 1;
-                }
-            }
-
-            if a1 < a2.min(a3) {
-                if list.is_empty() || *list.last().unwrap() != disc_y {
-                    if list.len() >= 2 && list[0] == *list.last().unwrap() && list[1] == disc_y {
-                        return;
-                    }
-
-                    list.push(disc_y.clone());
-                    *idx_y += 1;
-                }
-            }
+            return false;
         }
+    }
 
-        if a2 < a3 {
-            *line_star = line_x_succ.clone();
+    fn triangle_filter_is_sliver(
+        &self,
+        num_of_input_disks: usize,
+        num_of_disks_on_front_edge: usize,
+        num_of_disks_on_back_edge: usize,
+        pre_apex_disk_dp: &usize,
+        post_apex_disk_dq: &usize,
+    ) -> bool {
+        pre_apex_disk_dp != post_apex_disk_dq
+            && ((num_of_disks_on_front_edge == num_of_input_disks
+                && num_of_disks_on_back_edge == 1)
+                || (num_of_disks_on_front_edge == 1
+                    && num_of_disks_on_back_edge == num_of_input_disks))
+    }
 
-            if *idx_x < list_x.len() {
-                *idx_x += 1;
-                *idx_disc_x = *idx_x % list_x.len();
-            }
-        } else {
-            *line_star = line_y_succ.clone();
+    fn regularize_sliver_triangle_and_repivot_disks(
+        input_for_find_hull: &InputForFindHull,
+        disks_d_front_edge: &mut Vec<usize>,
+        disks_d_back_edge: &mut Vec<usize>,
+        pivot_disk_dx: &mut usize,
+        pivot_point_x: &mut Point,
+    ) {
+        let (mut disks_d, mut pre_apex_disk_dp, mut post_apex_disk_dq, hull_point_p, hull_point_q) = (
+            &mut input_for_find_hull.disks,
+            &mut input_for_find_hull.pre_apex_disk,
+            &mut input_for_find_hull.post_apex_disk,
+            input_for_find_hull.hull_point_of_pre_apex_disk,
+            input_for_find_hull.hull_point_of_post_apex_disk,
+        );
 
-            if *idx_y < list_y.len() {
-                *idx_y += 1;
-                *idx_disc_y = *idx_y % list_y.len();
-            }
-        }
+        
     }
 }
 
@@ -805,19 +800,23 @@ fn main() {
 
     for _ in 0..c {
         let n = scan.token::<usize>();
-        let mut convex_hull_algorithm = ConvexHullAlgorithm::default();
+        let mut disks = Vec::new();
 
-        for _ in 0..n {
+        for i in 1..=n {
             let (x, y, r) = (
                 scan.token::<f64>(),
                 scan.token::<f64>(),
-                scan.token::<f64>(),
+                scan.token::<f64>() + 10.0,
             );
-            convex_hull_algorithm.add_disc(Disc::new((x, y), r));
+
+            disks.push(Disk {
+                id: i,
+                center: Point { x, y },
+                radius: r,
+            });
         }
 
-        convex_hull_algorithm.sort();
-
-        writeln!(out, "{:.7}", convex_hull_algorithm.find(0, n - 1).length()).unwrap();
+        let mut quickhull_disk_algorithm = QuickhullDisk::new(disks);
+        let hull_disks = quickhull_disk_algorithm.find_hull_disks();
     }
 }

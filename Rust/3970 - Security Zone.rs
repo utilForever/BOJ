@@ -177,7 +177,7 @@ impl Line {
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, PartialEq)]
 struct Disk {
     center: Point,
     radius: f64,
@@ -247,6 +247,7 @@ impl LineImplicitEquation {
     }
 }
 
+#[derive(Debug)]
 struct InputForFindHull {
     disks: Vec<usize>,
     pre_apex_disk: usize,
@@ -290,20 +291,20 @@ impl QuickhullDisk {
         );
 
         let mut initial_expanded_non_positive_disks_d_right = Vec::new();
-        let mut initial_expanded_non_positive_disks_d_left = Vec::new();
+        let mut initial_expanded_non_negative_disks_d_left = Vec::new();
         let mut oriented_line_segment_base_line_pq =
             Line::new(high_left_extreme_point_p, low_right_extreme_point_q);
 
         self.divide_input_disks_into_two_initial_subsets(
             &mut oriented_line_segment_base_line_pq,
             &mut initial_expanded_non_positive_disks_d_right,
-            &mut initial_expanded_non_positive_disks_d_left,
+            &mut initial_expanded_non_negative_disks_d_left,
         );
 
         let mut stack_for_finding_hull = Vec::new();
 
         self.prepare_and_insert_input_data_for_finding_hull_to_stack(
-            &initial_expanded_non_positive_disks_d_left,
+            &initial_expanded_non_negative_disks_d_left,
             &mut disk_having_low_right_point_q,
             &mut disk_having_high_left_point_p,
             &mut low_right_extreme_point_q,
@@ -352,7 +353,11 @@ impl QuickhullDisk {
         let mut left_most_x = self.disks[*disk_having_high_left_point_p].center.x
             - self.disks[*disk_having_high_left_point_p].radius;
 
-        for (idx, disk) in self.disks.iter().skip(1).enumerate() {
+        for (idx, disk) in self.disks.iter().enumerate() {
+            if idx == 0 {
+                continue;
+            }
+
             let left_most_x_of_cur_disk = disk.center.x - disk.radius;
 
             if left_most_x_of_cur_disk < left_most_x {
@@ -384,7 +389,11 @@ impl QuickhullDisk {
         let mut right_most_x = self.disks[*disk_having_low_right_point_q].center.x
             + self.disks[*disk_having_low_right_point_q].radius;
 
-        for (idx, disk) in self.disks.iter().skip(1).enumerate() {
+        for (idx, disk) in self.disks.iter().enumerate() {
+            if idx == 0 {
+                continue;
+            }
+
             let right_most_x_of_cur_disk = disk.center.x + disk.radius;
 
             if right_most_x_of_cur_disk > right_most_x {
@@ -801,7 +810,7 @@ impl QuickhullDisk {
             <= -self.disks[*candidate_disk].radius + 1e-6
         {
             if orthogonal_line_at_start_point.signed_distance(self.disks[*candidate_disk].center)
-                <= -self.disks[*candidate_disk].radius - 1e-6
+                < -self.disks[*candidate_disk].radius - 1e-6
                 && orthogonal_line_at_end_point.signed_distance(self.disks[*candidate_disk].center)
                     > self.disks[*candidate_disk].radius + 1e-6
             {
@@ -839,7 +848,7 @@ impl QuickhullDisk {
                 false
             }
         } else {
-            return false;
+            false
         }
     }
 
@@ -1130,7 +1139,7 @@ impl QuickhullDisk {
             - non_negative_supporting_tangent_line_segment_from_dp_to_dq
                 .signed_distance(self.disks[candidate_apex_disk].center);
 
-        if height_of_triangle_apex <= 1e-6 {
+        if height_of_triangle_apex.abs() <= 1e-6 {
             let mut contained_disks_in_pre_or_post_apex_disk = Vec::new();
             self.remove_pre_and_post_apex_disks_and_contained_disks_in_one_of_the_two_from_candidate_apex_disks_if_exist(pre_apex_disk_dp, post_apex_disk_dq, &mut triangle_apex_n_disk_pairs, &mut contained_disks_in_pre_or_post_apex_disk);
 
@@ -1177,7 +1186,7 @@ impl QuickhullDisk {
             if candidate_apex_disk == *pre_apex_disk_dp || candidate_apex_disk == *post_apex_disk_dq
             {
                 candidate_triangle_apex_n_disk_pairs.remove(idx);
-                idx -= 1;
+                idx = idx.saturating_sub(1);
                 continue;
             }
 
@@ -1186,7 +1195,7 @@ impl QuickhullDisk {
             {
                 contained_disk_in_pre_or_post_apex_disk.push(candidate_apex_disk);
                 candidate_triangle_apex_n_disk_pairs.remove(idx);
-                idx -= 1;
+                idx = idx.saturating_sub(1);
             } else {
                 idx += 1;
             }
@@ -1273,8 +1282,7 @@ fn main() {
     let mut scan = UnsafeScanner::new(stdin.lock());
     let mut out = io::BufWriter::new(stdout.lock());
 
-    // let c = scan.token::<i64>();
-    let c = 1;
+    let c = scan.token::<i64>();
 
     for _ in 0..c {
         let n = scan.token::<usize>();
@@ -1292,6 +1300,30 @@ fn main() {
                 radius: r,
             });
         }
+
+        disks.sort_by(|a, b| {
+            if a.radius < b.radius {
+                std::cmp::Ordering::Less
+            } else if a.radius > b.radius {
+                std::cmp::Ordering::Greater
+            } else {
+                if a.center.x < b.center.x {
+                    std::cmp::Ordering::Less
+                } else if a.center.x > b.center.x {
+                    std::cmp::Ordering::Greater
+                } else {
+                    if a.center.y < b.center.y {
+                        std::cmp::Ordering::Less
+                    } else if a.center.y > b.center.y {
+                        std::cmp::Ordering::Greater
+                    } else {
+                        std::cmp::Ordering::Equal
+                    }
+                }
+            }
+        });
+
+        disks.dedup();
 
         let mut quickhull_disk_algorithm = QuickhullDisk::new(disks);
         let hull_disks = quickhull_disk_algorithm.find_hull_disks();

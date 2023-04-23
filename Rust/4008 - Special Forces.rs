@@ -1,17 +1,36 @@
-use std::io;
+use io::Write;
+use std::{io, str};
 
-fn input_integers() -> Vec<i64> {
-    let mut s = String::new();
+pub struct UnsafeScanner<R> {
+    reader: R,
+    buf_str: Vec<u8>,
+    buf_iter: str::SplitAsciiWhitespace<'static>,
+}
 
-    io::stdin().read_line(&mut s).unwrap();
+impl<R: io::BufRead> UnsafeScanner<R> {
+    pub fn new(reader: R) -> Self {
+        Self {
+            reader,
+            buf_str: vec![],
+            buf_iter: "".split_ascii_whitespace(),
+        }
+    }
 
-    let values: Vec<i64> = s
-        .as_mut_str()
-        .split_whitespace()
-        .map(|s| s.parse().unwrap())
-        .collect();
-
-    values
+    pub fn token<T: str::FromStr>(&mut self) -> T {
+        loop {
+            if let Some(token) = self.buf_iter.next() {
+                return token.parse().ok().expect("Failed parse");
+            }
+            self.buf_str.clear();
+            self.reader
+                .read_until(b'\n', &mut self.buf_str)
+                .expect("Failed read");
+            self.buf_iter = unsafe {
+                let slice = str::from_utf8_unchecked(&self.buf_str);
+                std::mem::transmute(slice.split_ascii_whitespace())
+            }
+        }
+    }
 }
 
 fn cross(stack: &Vec<(i64, i64)>, x: usize, y: usize) -> f64 {
@@ -41,22 +60,25 @@ fn query(stack: &Vec<(i64, i64)>, size: &usize, last: &mut usize, x: i64) -> i64
 }
 
 fn main() {
-    let n = input_integers()[0] as usize;
+    let (stdin, stdout) = (io::stdin(), io::stdout());
+    let mut scan = UnsafeScanner::new(stdin.lock());
+    let mut out = io::BufWriter::new(stdout.lock());
 
-    let nums = input_integers();
-    let (a, b, c) = (nums[0], nums[1], nums[2]);
-
+    let n = scan.token::<usize>();
+    let (a, b, c) = (
+        scan.token::<i64>(),
+        scan.token::<i64>(),
+        scan.token::<i64>(),
+    );
     let mut power = vec![0; n + 1];
     let mut accumulated_power = vec![0; n + 1];
 
-    let nums = input_integers();
-
     for i in 1..=n {
-        power[i] = nums[i - 1];
+        power[i] = scan.token::<i64>();
         accumulated_power[i] = accumulated_power[i - 1] + power[i];
     }
 
-    let mut stack = vec![(0, 0); 1_000_001];
+    let mut stack = vec![(0, 0); n + 1];
     let mut size = 0;
 
     insert(&mut stack, &mut size, 0, 0);
@@ -77,5 +99,5 @@ fn main() {
         );
     }
 
-    println!("{}", cost[n]);
+    writeln!(out, "{}", cost[n]).unwrap();
 }

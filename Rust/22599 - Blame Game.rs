@@ -59,19 +59,13 @@ struct MaximumFlow {
 
 impl MaximumFlow {
     fn new(n: usize, source: usize, sink: usize) -> Self {
-        let mut mcmf = Self {
+        Self {
             graph: vec![Vec::new(); n],
             source,
             sink,
             check: vec![-1; n],
             done: vec![0; n],
-        };
-
-        for i in 0..n {
-            mcmf.graph[i] = Vec::with_capacity(n);
         }
-
-        mcmf
     }
 
     fn add_edge(&mut self, u: usize, v: usize, capacity: i64) {

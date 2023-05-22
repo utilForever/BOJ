@@ -49,18 +49,22 @@ impl Edge {
     }
 }
 
-struct MCMF {
+struct MaximumFlow {
     graph: Vec<Vec<Rc<RefCell<Edge>>>>,
     source: usize,
     sink: usize,
+    check: Vec<i64>,
+    done: Vec<usize>,
 }
 
-impl MCMF {
+impl MaximumFlow {
     fn new(n: usize, source: usize, sink: usize) -> Self {
         Self {
-            graph: vec![Vec::new(); n as usize],
+            graph: vec![Vec::new(); n],
             source,
             sink,
+            check: vec![-1; n],
+            done: vec![0; n],
         }
     }
 
@@ -75,83 +79,83 @@ impl MCMF {
         self.graph[v].push(dest);
     }
 
-    fn process_dfs(&mut self) -> i64 {
-        let mut check = vec![false; self.graph.len()];
-        let mut from = vec![(-1, -1); self.graph.len()];
-        let mut queue = VecDeque::new();
+    fn process_bfs(&mut self) -> bool {
+        self.check.fill(-1);
 
+        let mut queue = VecDeque::new();
         queue.push_back(self.source);
-        check[self.source] = true;
+        self.check[self.source] = 0;
 
         while !queue.is_empty() {
             let val = queue.pop_front().unwrap();
 
             for i in 0..self.graph[val].len() {
-                if self.graph[val][i].borrow().capacity > 0
-                    && !check[self.graph[val][i].borrow().to]
-                {
-                    queue.push_back(self.graph[val][i].borrow().to);
-                    check[self.graph[val][i].borrow().to] = true;
-                    from[self.graph[val][i].borrow().to] = (val as i64, i as i64);
+                let edge = self.graph[val][i].borrow();
+
+                if edge.capacity <= 0 || self.check[edge.to] != -1 {
+                    continue;
                 }
+
+                queue.push_back(edge.to);
+                self.check[edge.to] = self.check[val] + 1;
             }
         }
 
-        if !check[self.sink] {
-            return 0;
+        self.check[self.sink] != -1
+    }
+
+    fn process_dfs(&mut self, idx: usize, flow: i64) -> i64 {
+        if idx == self.sink || flow == 0 {
+            return flow;
         }
 
-        let mut x = self.sink;
-        let mut capacity = self.graph[from[x].0 as usize][from[x].1 as usize]
-            .as_ref()
-            .borrow()
-            .capacity;
+        while self.done[idx] < self.graph[idx].len() {
+            let (to, capacity) = {
+                let edge = self.graph[idx][self.done[idx]].borrow();
+                (edge.to, edge.capacity)
+            };
 
-        while from[x].0 != -1 {
-            if capacity
-                > self.graph[from[x].0 as usize][from[x].1 as usize]
-                    .as_ref()
-                    .borrow()
-                    .capacity
-            {
-                capacity = self.graph[from[x].0 as usize][from[x].1 as usize]
-                    .as_ref()
-                    .borrow()
-                    .capacity;
+            if self.check[to] <= self.check[idx] {
+                self.done[idx] += 1;
+                continue;
             }
 
-            x = from[x].0 as usize;
-        }
+            let flow_current = self.process_dfs(to, capacity.min(flow));
 
-        x = self.sink;
+            if flow_current > 0 {
+                let edge = &mut self.graph[idx][self.done[idx]].borrow_mut();
+                edge.capacity -= flow_current;
+                unsafe {
+                    (*edge.dest.as_ref().unwrap().as_ref().as_ptr()).capacity += flow_current;
+                }
 
-        while from[x].0 != -1 {
-            let edge = &mut self.graph[from[x].0 as usize][from[x].1 as usize].borrow_mut();
-            edge.capacity -= capacity;
-            unsafe {
-                (*edge.dest.as_ref().unwrap().as_ref().as_ptr()).capacity += capacity;
+                return flow_current;
             }
 
-            x = from[x].0 as usize;
+            self.done[idx] += 1;
         }
 
-        capacity
+        0
     }
 
     fn get_flow(&mut self) -> i64 {
-        let mut total_flow = 0;
+        let mut flow_total = 0;
 
-        loop {
-            let res = self.process_dfs();
+        while self.process_bfs() {
+            self.done.fill(0);
 
-            if res == 0 {
-                break;
+            loop {
+                let flow_current = self.process_dfs(self.source, i64::MAX);
+
+                if flow_current == 0 {
+                    break;
+                }
+
+                flow_total += flow_current;
             }
-
-            total_flow += res;
         }
 
-        total_flow
+        flow_total
     }
 }
 
@@ -193,7 +197,7 @@ fn main() {
         }
     }
 
-    let mut mcmf = MCMF::new(
+    let mut maximum_flow = MaximumFlow::new(
         (n * m) * 2,
         (y_start * m + x_start) * 2 + 1,
         (y_end * m + x_end) * 2,
@@ -205,29 +209,31 @@ fn main() {
                 continue;
             }
 
-            mcmf.add_edge((i * m + j) * 2, (i * m + j) * 2 + 1, 1);
+            maximum_flow.add_edge((i * m + j) * 2, (i * m + j) * 2 + 1, 1);
 
             for k in 0..4 {
                 let y_new = i as i64 + dy[k];
                 let x_new = j as i64 + dx[k];
 
-                if y_new >= 0 && y_new < n as i64 && x_new >= 0 && x_new < m as i64 {
-                    if city[y_new as usize][x_new as usize] != '#' {
-                        mcmf.add_edge(
-                            (i * m + j) * 2 + 1,
-                            (y_new as usize * m + x_new as usize) * 2,
-                            1_000_000,
-                        );
-                    }
+                if y_new < 0 || y_new >= n as i64 || x_new < 0 || x_new >= m as i64 {
+                    continue;
+                }
+
+                let y_new = y_new as usize;
+                let x_new = x_new as usize;
+
+                if city[y_new][x_new] != '#' {
+                    maximum_flow.add_edge((i * m + j) * 2 + 1, (y_new * m + x_new) * 2, 1_000_000);
                 }
             }
         }
     }
 
-    let mut ans = mcmf.get_flow();
-    if ans >= 1_000_000 {
-        ans = -1;
+    let mut ret = maximum_flow.get_flow();
+
+    if ret >= 1_000_000 {
+        ret = -1;
     }
 
-    writeln!(out, "{}", ans).unwrap();
+    writeln!(out, "{ret}").unwrap();
 }

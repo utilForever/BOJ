@@ -1,28 +1,51 @@
-use std::io;
+use io::Write;
+use std::{io, str};
 
-fn input_integers() -> Vec<i64> {
-    let mut s = String::new();
+pub struct UnsafeScanner<R> {
+    reader: R,
+    buf_str: Vec<u8>,
+    buf_iter: str::SplitAsciiWhitespace<'static>,
+}
 
-    io::stdin().read_line(&mut s).unwrap();
+impl<R: io::BufRead> UnsafeScanner<R> {
+    pub fn new(reader: R) -> Self {
+        Self {
+            reader,
+            buf_str: vec![],
+            buf_iter: "".split_ascii_whitespace(),
+        }
+    }
 
-    let values: Vec<i64> = s
-        .as_mut_str()
-        .split_whitespace()
-        .map(|s| s.parse().unwrap())
-        .collect();
-
-    values
+    pub fn token<T: str::FromStr>(&mut self) -> T {
+        loop {
+            if let Some(token) = self.buf_iter.next() {
+                return token.parse().ok().expect("Failed parse");
+            }
+            self.buf_str.clear();
+            self.reader
+                .read_until(b'\n', &mut self.buf_str)
+                .expect("Failed read");
+            self.buf_iter = unsafe {
+                let slice = str::from_utf8_unchecked(&self.buf_str);
+                std::mem::transmute(slice.split_ascii_whitespace())
+            }
+        }
+    }
 }
 
 fn main() {
-    let nums = input_integers();
-    let mut n = nums[0];
-    let mut k = nums[1];
+    let (stdin, stdout) = (io::stdin(), io::stdout());
+    let mut scan = UnsafeScanner::new(stdin.lock());
+    let mut out = io::BufWriter::new(stdout.lock());
 
-    k = if n - k > k { k } else { n - k };
+    let (mut n, mut k) = (scan.token::<i64>(), scan.token::<i64>());
+
+    if n - k <= k {
+        k = n - k;
+    }
 
     if n == 0 || k == 0 {
-        println!("1");
+        writeln!(out, "1").unwrap();
         return;
     }
 
@@ -36,5 +59,5 @@ fn main() {
         n -= 1;
     }
 
-    println!("{}", numerator / denominator);
+    writeln!(out, "{}", numerator / denominator).unwrap();
 }

@@ -171,7 +171,7 @@ fn glue(f1: *mut Face, f2: *mut Face, e1: &mut *mut Edge, e2: &mut *mut Edge) {
     *e2 = &mut Edge { rev: *e1, face: f1 };
 }
 
-fn prepare(p: &mut Vec<Point3>) {
+fn prepare(p: &mut Vec<Point3>) -> bool {
     let n = p.len();
 
     for _ in 0..n {
@@ -203,6 +203,10 @@ fn prepare(p: &mut Vec<Point3>) {
         }
     }
 
+    if vec.len() != 4 {
+        return false;
+    }
+
     let mut vec2 = Vec::new();
 
     for i in vec.iter() {
@@ -218,6 +222,8 @@ fn prepare(p: &mut Vec<Point3>) {
     for point in vec2.iter().rev() {
         p.insert(0, *point);
     }
+
+    true
 }
 
 fn stable_partition_by_key(slice: &mut [usize], is_upper: impl Fn(usize) -> bool) -> usize {
@@ -240,8 +246,13 @@ fn stable_partition_by_key(slice: &mut [usize], is_upper: impl Fn(usize) -> bool
 
 unsafe fn hull3(p: &mut Vec<Point3>) -> Vec<*mut Face> {
     let n = p.len();
-    prepare(p);
+    let check = prepare(p);
     let mut f: Vec<*mut Face> = Vec::new();
+
+    if !check {
+        return f;
+    }
+
     let mut new_face: Vec<*mut Face> = vec![ptr::null_mut(); n];
     let mut conflict = vec![Vec::new(); n];
 

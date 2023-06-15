@@ -1,6 +1,50 @@
 use io::Write;
 use std::{io, ptr, str};
 
+struct Rng([u64; 4]);
+
+impl Rng {
+    fn split_mix(v: u64) -> u64 {
+        let mut z = v.wrapping_add(0x9e3779b97f4a7c15);
+
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d049bb133111eb);
+        z ^ (z >> 31)
+    }
+
+    fn new() -> Self {
+        let mut seed = 0;
+        unsafe { std::arch::x86_64::_rdrand64_step(&mut seed) };
+
+        let mut prev = seed;
+
+        Self(std::array::from_fn(|_| {
+            prev = Self::split_mix(prev);
+            prev
+        }))
+    }
+
+    fn next(&mut self, n: u64) -> u64 {
+        let [x, y, z, c] = &mut self.0;
+        let t = x.wrapping_shl(58) + *c;
+
+        *c = *x >> 6;
+        *x = x.wrapping_add(t);
+
+        if *x < t {
+            *c += 1;
+        }
+
+        *z = z.wrapping_mul(6906969069).wrapping_add(1234567);
+        *y ^= y.wrapping_shl(13);
+        *y ^= *y >> 17;
+        *y ^= y.wrapping_shl(43);
+
+        let base = x.wrapping_add(*y).wrapping_add(*z);
+        ((base as u128 * n as u128) >> 64) as u64
+    }
+}
+
 pub struct UnsafeScanner<R> {
     reader: R,
     buf_str: Vec<u8>,
@@ -122,222 +166,240 @@ impl Face {
     }
 }
 
-fn glue(f1: *mut Face, f2: *mut Face, e1: &mut *mut Edge, e2: &mut *mut Edge) {
-    let edge1 = Box::new(Edge {
-        rev: ptr::null_mut(),
-        face: ptr::null_mut(),
-    });
-    let edge2 = Box::new(Edge {
-        rev: ptr::null_mut(),
-        face: ptr::null_mut(),
-    });
-    *e1 = Box::into_raw(edge1);
-    *e2 = Box::into_raw(edge2);
-
-    unsafe {
-        (*(*e1)).rev = *e2;
-        (*(*e2)).rev = *e1;
-        (*(*e1)).face = f2;
-        (*(*e2)).face = f1;
-    }
+struct ConvexHull3 {
+    faces: Vec<*mut Face>,
 }
 
-fn prepare(p: &mut Vec<Point3>) -> bool {
-    let n = p.len();
-    let mut vec = Vec::new();
-    vec.push(0);
+impl ConvexHull3 {
+    unsafe fn try_new(p: &mut Vec<Point3>) -> Self {
+        let n = p.len();
+        let check = ConvexHull3::prepare(p);
+        let mut f: Vec<*mut Face> = Vec::new();
 
-    for i in 1..n {
-        if vec.len() == 1 {
-            if (p[vec[0]] - p[i]).abs() > 1e-9 {
-                vec.push(i);
-            }
-        } else if vec.len() == 2 {
-            if (p[vec[1]] - p[vec[0]]).cross(&(p[i] - p[vec[0]])).abs() > 1e-9 {
-                vec.push(i);
-            }
-        } else if (p[i] - p[vec[0]])
-            .dot(&(p[vec[1]] - p[vec[0]]).cross(&(p[vec[2]] - p[vec[0]])))
-            .abs()
-            > 1e-9
-        {
-            vec.push(i);
-            break;
-        }
-    }
-
-    if vec.len() != 4 {
-        return false;
-    }
-
-    let mut vec2 = Vec::new();
-
-    for i in vec.iter() {
-        vec2.push(p[*i]);
-    }
-
-    vec.reverse();
-
-    for i in vec.iter() {
-        p.remove(*i);
-    }
-
-    for point in vec2.iter().rev() {
-        p.insert(0, *point);
-    }
-
-    true
-}
-
-fn stable_partition_by_key(slice: &mut [usize], is_upper: impl Fn(usize) -> bool) -> usize {
-    let mut upper = Vec::new();
-    let mut idx = 0;
-
-    for j in 0..slice.len() {
-        if is_upper(slice[j]) {
-            upper.push(slice[j]);
-        } else {
-            slice[idx] = slice[j];
-            idx += 1;
-        }
-    }
-
-    slice[idx..].copy_from_slice(&upper);
-
-    idx
-}
-
-unsafe fn hull3(p: &mut Vec<Point3>) -> Vec<*mut Face> {
-    let n = p.len();
-    let check = prepare(p);
-    let mut f: Vec<*mut Face> = Vec::new();
-
-    if !check {
-        return f;
-    }
-
-    let mut new_face: Vec<*mut Face> = vec![ptr::null_mut(); n];
-    let mut conflict = vec![Vec::new(); n];
-
-    let mut add_face = |a: usize, b: usize, c: usize| -> *mut Face {
-        let face = Box::new(Face::new(a, b, c, (p[b] - p[a]).cross(&(p[c] - p[a]))));
-        let face_ptr = Box::into_raw(face);
-        f.push(face_ptr);
-        face_ptr
-    };
-
-    let f1 = add_face(0, 1, 2);
-    let f2 = add_face(0, 2, 1);
-
-    glue(f1, f2, &mut (*f1).e1, &mut (*f2).e3);
-    glue(f1, f2, &mut (*f1).e2, &mut (*f2).e2);
-    glue(f1, f2, &mut (*f1).e3, &mut (*f2).e1);
-
-    for i in 3..n {
-        for f in [f1, f2].iter() {
-            let q = (p[i] - p[(*(*f)).a]).dot(&(*(*f)).q);
-
-            if q > 1e-9 {
-                conflict[i].push(*f);
-            }
-
-            if q >= -1e-9 {
-                (*(*f)).points.push(i);
-            }
-        }
-    }
-
-    let set_union = |a: Vec<usize>, b: Vec<usize>| -> Vec<usize> {
-        let mut stack = a.clone();
-
-        for val in b.iter() {
-            stack.push(*val);
+        if !check {
+            return Self { faces: f };
         }
 
-        let mut ret = stack.clone();
+        let mut new_face: Vec<*mut Face> = vec![ptr::null_mut(); n];
+        let mut conflict = vec![Vec::new(); n];
 
-        for x in (0..ret.len()).rev() {
-            for y in (x + 1..ret.len()).rev() {
-                if ret[x] == ret[y] {
-                    ret.remove(y);
+        let mut add_face = |a: usize, b: usize, c: usize| -> *mut Face {
+            let face = Box::new(Face::new(a, b, c, (p[b] - p[a]).cross(&(p[c] - p[a]))));
+            let face_ptr = Box::into_raw(face);
+            f.push(face_ptr);
+            face_ptr
+        };
+
+        let f1 = add_face(0, 1, 2);
+        let f2 = add_face(0, 2, 1);
+
+        ConvexHull3::glue(f1, f2, &mut (*f1).e1, &mut (*f2).e3);
+        ConvexHull3::glue(f1, f2, &mut (*f1).e2, &mut (*f2).e2);
+        ConvexHull3::glue(f1, f2, &mut (*f1).e3, &mut (*f2).e1);
+
+        for i in 3..n {
+            for f in [f1, f2].iter() {
+                let q = (p[i] - p[(*(*f)).a]).dot(&(*(*f)).q);
+
+                if q > 1e-9 {
+                    conflict[i].push(*f);
+                }
+
+                if q >= -1e-9 {
+                    (*(*f)).points.push(i);
                 }
             }
         }
 
-        ret
-    };
+        let set_union = |a: Vec<usize>, b: Vec<usize>| -> Vec<usize> {
+            let mut stack = a.clone();
 
-    for i in 3..n {
-        for f in conflict[i].iter() {
-            (*(*f)).dead = (*(*f)).dead.min(i);
-        }
+            for val in b.iter() {
+                stack.push(*val);
+            }
 
-        let mut v = -1;
+            let mut ret = stack.clone();
 
-        for idx in 0..conflict[i].len() {
-            if (*conflict[i][idx]).dead != i {
+            for x in (0..ret.len()).rev() {
+                for y in (x + 1..ret.len()).rev() {
+                    if ret[x] == ret[y] {
+                        ret.remove(y);
+                    }
+                }
+            }
+
+            ret
+        };
+
+        for i in 3..n {
+            for f in conflict[i].iter() {
+                (*(*f)).dead = (*(*f)).dead.min(i);
+            }
+
+            let mut v = -1;
+
+            for idx in 0..conflict[i].len() {
+                if (*conflict[i][idx]).dead != i {
+                    continue;
+                }
+
+                let parr = [
+                    (*conflict[i][idx]).a,
+                    (*conflict[i][idx]).b,
+                    (*conflict[i][idx]).c,
+                ];
+                let earr = [
+                    (*conflict[i][idx]).e1,
+                    (*conflict[i][idx]).e2,
+                    (*conflict[i][idx]).e3,
+                ];
+
+                for j in 0..3 {
+                    let j2 = (j + 1) % 3;
+
+                    if (*(*earr[j]).face).dead > i {
+                        new_face[parr[j]] = add_face(parr[j], parr[j2], i);
+                        let combined_face = new_face[parr[j]];
+
+                        let union = set_union(
+                            (*conflict[i][idx]).points.clone(),
+                            (*(*earr[j]).face).points.clone(),
+                        );
+                        (*combined_face).points.extend(union.iter());
+
+                        let pos = ConvexHull3::stable_partition_by_key(
+                            &mut (*combined_face).points,
+                            |x| {
+                                !(x > i
+                                    && (p[x] - p[(*combined_face).a]).dot(&(*combined_face).q)
+                                        > 1e-9)
+                            },
+                        );
+                        (*combined_face).points.truncate(pos);
+
+                        for k in (*combined_face).points.iter() {
+                            conflict[*k].push(combined_face);
+                        }
+
+                        (*(*earr[j]).rev).face = combined_face;
+                        (*combined_face).e1 = earr[j];
+                        v = parr[j] as i64;
+                    }
+                }
+            }
+
+            if v == -1 {
                 continue;
             }
 
-            let parr = [
-                (*conflict[i][idx]).a,
-                (*conflict[i][idx]).b,
-                (*conflict[i][idx]).c,
-            ];
-            let earr = [
-                (*conflict[i][idx]).e1,
-                (*conflict[i][idx]).e2,
-                (*conflict[i][idx]).e3,
-            ];
-
-            for j in 0..3 {
-                let j2 = (j + 1) % 3;
-
-                if (*(*earr[j]).face).dead > i {
-                    new_face[parr[j]] = add_face(parr[j], parr[j2], i);
-                    let combined_face = new_face[parr[j]];
-
-                    let union = set_union(
-                        (*conflict[i][idx]).points.clone(),
-                        (*(*earr[j]).face).points.clone(),
-                    );
-                    (*combined_face).points.extend(union.iter());
-
-                    let pos = stable_partition_by_key(&mut (*combined_face).points, |x| {
-                        !(x > i && (p[x] - p[(*combined_face).a]).dot(&(*combined_face).q) > 1e-9)
-                    });
-                    (*combined_face).points.truncate(pos);
-
-                    for k in (*combined_face).points.iter() {
-                        conflict[*k].push(combined_face);
-                    }
-
-                    (*(*earr[j]).rev).face = combined_face;
-                    (*combined_face).e1 = earr[j];
-                    v = parr[j] as i64;
-                }
+            while (*new_face[v as usize]).e2 == ptr::null_mut() {
+                let u = (*new_face[v as usize]).b;
+                ConvexHull3::glue(
+                    new_face[v as usize],
+                    new_face[u],
+                    &mut (*new_face[v as usize]).e2,
+                    &mut (*new_face[u]).e3,
+                );
+                v = u as i64;
             }
         }
 
-        if v == -1 {
-            continue;
+        f.retain(|x| (*(*x)).dead >= n);
+
+        Self { faces: f }
+    }
+
+    fn prepare(p: &mut Vec<Point3>) -> bool {
+        let n = p.len();
+
+        for _ in 0..n {
+            let idx1 = Rng::new().next(n as u64) as usize;
+            let idx2 = Rng::new().next(n as u64) as usize;
+
+            p.swap(idx1, idx2);
         }
 
-        while (*new_face[v as usize]).e2 == ptr::null_mut() {
-            let u = (*new_face[v as usize]).b;
-            glue(
-                new_face[v as usize],
-                new_face[u],
-                &mut (*new_face[v as usize]).e2,
-                &mut (*new_face[u]).e3,
-            );
-            v = u as i64;
+        let mut vec = Vec::new();
+        vec.push(0);
+
+        for i in 1..n {
+            if vec.len() == 1 {
+                if (p[vec[0]] - p[i]).abs() > 1e-9 {
+                    vec.push(i);
+                }
+            } else if vec.len() == 2 {
+                if (p[vec[1]] - p[vec[0]]).cross(&(p[i] - p[vec[0]])).abs() > 1e-9 {
+                    vec.push(i);
+                }
+            } else if (p[i] - p[vec[0]])
+                .dot(&(p[vec[1]] - p[vec[0]]).cross(&(p[vec[2]] - p[vec[0]])))
+                .abs()
+                > 1e-9
+            {
+                vec.push(i);
+                break;
+            }
+        }
+
+        if vec.len() != 4 {
+            return false;
+        }
+
+        let mut vec2 = Vec::with_capacity(vec.len());
+
+        for i in vec.iter() {
+            vec2.push(p[*i]);
+        }
+
+        vec.reverse();
+
+        for i in vec.iter() {
+            p.remove(*i);
+        }
+
+        vec2.append(p);
+        *p = vec2;
+
+        true
+    }
+
+    fn glue(f1: *mut Face, f2: *mut Face, e1: &mut *mut Edge, e2: &mut *mut Edge) {
+        let edge1 = Box::new(Edge {
+            rev: ptr::null_mut(),
+            face: ptr::null_mut(),
+        });
+        let edge2 = Box::new(Edge {
+            rev: ptr::null_mut(),
+            face: ptr::null_mut(),
+        });
+        *e1 = Box::into_raw(edge1);
+        *e2 = Box::into_raw(edge2);
+
+        unsafe {
+            (*(*e1)).rev = *e2;
+            (*(*e2)).rev = *e1;
+            (*(*e1)).face = f2;
+            (*(*e2)).face = f1;
         }
     }
 
-    f.retain(|x| (*(*x)).dead >= n);
+    fn stable_partition_by_key(slice: &mut [usize], is_upper: impl Fn(usize) -> bool) -> usize {
+        let mut upper = Vec::new();
+        let mut idx = 0;
 
-    f
+        for j in 0..slice.len() {
+            if is_upper(slice[j]) {
+                upper.push(slice[j]);
+            } else {
+                slice[idx] = slice[j];
+                idx += 1;
+            }
+        }
+
+        slice[idx..].copy_from_slice(&upper);
+
+        idx
+    }
 }
 
 struct Plane {
@@ -430,7 +492,7 @@ impl Plane {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 struct Point2 {
     x: f64,
     y: f64,
@@ -554,12 +616,12 @@ fn main() {
     }
 
     unsafe {
-        let hull = hull3(&mut points);
+        let convex_hull3 = ConvexHull3::try_new(&mut points);
 
         let convert = |points: &Vec<Point3>, plane: &Plane| -> Vec<Point2> {
             let coords = plane.coord();
             let (xh, yh, origin) = (&coords[0], &coords[1], &coords[2]);
-            let mut ret = Vec::new();
+            let mut ret = Vec::with_capacity(points.len());
 
             for point in points {
                 let x = xh.dot(&(*point - *origin));
@@ -580,7 +642,7 @@ fn main() {
             );
 
             let plane = Plane::new(Point3::new(a, b, c), d);
-            let intersections = plane.intersect_all(&hull, &points);
+            let intersections = plane.intersect_all(&convex_hull3.faces, &points);
 
             if intersections.len() < 3 {
                 writeln!(out, "0").unwrap();
@@ -588,8 +650,8 @@ fn main() {
             }
 
             let points = convert(&intersections, &plane);
-            let convex_hull = ConvexHull2::try_new(points);
-            let ret = convex_hull.area();
+            let convex_hull2 = ConvexHull2::try_new(points);
+            let ret = convex_hull2.area();
 
             writeln!(out, "{:.3}", ret).unwrap();
         }

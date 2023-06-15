@@ -1,50 +1,6 @@
 use io::Write;
 use std::{io, ptr, str};
 
-struct Rng([u64; 4]);
-
-impl Rng {
-    fn split_mix(v: u64) -> u64 {
-        let mut z = v.wrapping_add(0x9e3779b97f4a7c15);
-
-        z = (z ^ (z >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94d049bb133111eb);
-        z ^ (z >> 31)
-    }
-
-    fn new() -> Self {
-        let mut seed = 0;
-        unsafe { std::arch::x86_64::_rdrand64_step(&mut seed) };
-
-        let mut prev = seed;
-
-        Self(std::array::from_fn(|_| {
-            prev = Self::split_mix(prev);
-            prev
-        }))
-    }
-
-    fn next(&mut self, n: u64) -> u64 {
-        let [x, y, z, c] = &mut self.0;
-        let t = x.wrapping_shl(58) + *c;
-
-        *c = *x >> 6;
-        *x = x.wrapping_add(t);
-
-        if *x < t {
-            *c += 1;
-        }
-
-        *z = z.wrapping_mul(6906969069).wrapping_add(1234567);
-        *y ^= y.wrapping_shl(13);
-        *y ^= *y >> 17;
-        *y ^= y.wrapping_shl(43);
-
-        let base = x.wrapping_add(*y).wrapping_add(*z);
-        ((base as u128 * n as u128) >> 64) as u64
-    }
-}
-
 pub struct UnsafeScanner<R> {
     reader: R,
     buf_str: Vec<u8>,
@@ -131,13 +87,13 @@ impl std::ops::Sub for Point3 {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct Edge {
     rev: *mut Edge,
     face: *mut Face,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct Face {
     a: usize,
     b: usize,
@@ -167,20 +123,27 @@ impl Face {
 }
 
 fn glue(f1: *mut Face, f2: *mut Face, e1: &mut *mut Edge, e2: &mut *mut Edge) {
-    *e1 = &mut Edge { rev: *e2, face: f2 };
-    *e2 = &mut Edge { rev: *e1, face: f1 };
+    let edge1 = Box::new(Edge {
+        rev: ptr::null_mut(),
+        face: ptr::null_mut(),
+    });
+    let edge2 = Box::new(Edge {
+        rev: ptr::null_mut(),
+        face: ptr::null_mut(),
+    });
+    *e1 = Box::into_raw(edge1);
+    *e2 = Box::into_raw(edge2);
+
+    unsafe {
+        (*(*e1)).rev = *e2;
+        (*(*e2)).rev = *e1;
+        (*(*e1)).face = f2;
+        (*(*e2)).face = f1;
+    }
 }
 
 fn prepare(p: &mut Vec<Point3>) -> bool {
     let n = p.len();
-
-    for _ in 0..n {
-        let idx1 = Rng::new().next(n as u64) as usize;
-        let idx2 = Rng::new().next(n as u64) as usize;
-
-        p.swap(idx1, idx2);
-    }
-
     let mut vec = Vec::new();
     vec.push(0);
 
@@ -257,9 +220,10 @@ unsafe fn hull3(p: &mut Vec<Point3>) -> Vec<*mut Face> {
     let mut conflict = vec![Vec::new(); n];
 
     let mut add_face = |a: usize, b: usize, c: usize| -> *mut Face {
-        let mut face = Face::new(a, b, c, (p[b] - p[a]).cross(&(p[c] - p[a])));
-        f.push(&mut face);
-        &mut face
+        let face = Box::new(Face::new(a, b, c, (p[b] - p[a]).cross(&(p[c] - p[a]))));
+        let face_ptr = Box::into_raw(face);
+        f.push(face_ptr);
+        face_ptr
     };
 
     let f1 = add_face(0, 1, 2);
@@ -340,7 +304,7 @@ unsafe fn hull3(p: &mut Vec<Point3>) -> Vec<*mut Face> {
                     (*combined_face).points.extend(union.iter());
 
                     let pos = stable_partition_by_key(&mut (*combined_face).points, |x| {
-                        x > i && (p[x] - p[(*combined_face).a]).dot(&(*combined_face).q) > 1e-9
+                        !(x > i && (p[x] - p[(*combined_face).a]).dot(&(*combined_face).q) > 1e-9)
                     });
                     (*combined_face).points.truncate(pos);
 
@@ -539,6 +503,11 @@ impl ConvexHull2 {
             stack.push(points[i]);
         }
 
+        if ConvexHull2::calculate_ccw(&stack[stack.len() - 2], &stack[stack.len() - 1], &p0) == 0.0
+        {
+            stack.pop();
+        }
+
         Self { points: stack }
     }
 
@@ -565,6 +534,8 @@ impl ConvexHull2 {
     }
 }
 
+// Reference: https://github.com/andom9/chull
+// Reference: https://codeforces.com/blog/entry/81768
 // Thanks for @seungwuk98 to help some parts of code! (Plane-related)
 fn main() {
     let (stdin, stdout) = (io::stdin(), io::stdout());

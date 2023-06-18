@@ -1,4 +1,4 @@
-quse io::Write;
+use io::Write;
 use std::{io, str};
 
 pub struct UnsafeScanner<R> {

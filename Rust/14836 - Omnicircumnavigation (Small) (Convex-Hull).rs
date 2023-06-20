@@ -1,6 +1,50 @@
 use io::Write;
 use std::{io, ptr, str};
 
+struct Rng([u64; 4]);
+
+impl Rng {
+    fn split_mix(v: u64) -> u64 {
+        let mut z = v.wrapping_add(0x9e3779b97f4a7c15);
+
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d049bb133111eb);
+        z ^ (z >> 31)
+    }
+
+    fn new() -> Self {
+        let mut seed = 0;
+        unsafe { std::arch::x86_64::_rdrand64_step(&mut seed) };
+
+        let mut prev = seed;
+
+        Self(std::array::from_fn(|_| {
+            prev = Self::split_mix(prev);
+            prev
+        }))
+    }
+
+    fn next(&mut self, n: u64) -> u64 {
+        let [x, y, z, c] = &mut self.0;
+        let t = x.wrapping_shl(58) + *c;
+
+        *c = *x >> 6;
+        *x = x.wrapping_add(t);
+
+        if *x < t {
+            *c += 1;
+        }
+
+        *z = z.wrapping_mul(6906969069).wrapping_add(1234567);
+        *y ^= y.wrapping_shl(13);
+        *y ^= *y >> 17;
+        *y ^= y.wrapping_shl(43);
+
+        let base = x.wrapping_add(*y).wrapping_add(*z);
+        ((base as u128 * n as u128) >> 64) as u64
+    }
+}
+
 pub struct UnsafeScanner<R> {
     reader: R,
     buf_str: Vec<u8>,
@@ -35,13 +79,13 @@ impl<R: io::BufRead> UnsafeScanner<R> {
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 struct Point3 {
-    x: f64,
-    y: f64,
-    z: f64,
+    x: i128,
+    y: i128,
+    z: i128,
 }
 
 impl Point3 {
-    fn new(x: f64, y: f64, z: f64) -> Self {
+    fn new(x: i128, y: i128, z: i128) -> Self {
         Self { x, y, z }
     }
 
@@ -57,12 +101,23 @@ impl Point3 {
         )
     }
 
-    fn dot(&self, other: &Point3) -> f64 {
+    fn dot(&self, other: &Point3) -> i128 {
         self.x * other.x + self.y * other.y + self.z * other.z
     }
 
-    fn abs(&self) -> f64 {
-        self.dot(self).sqrt()
+    fn is_colinear(a: &Point3, b: &Point3, c: &Point3) -> bool {
+        let ab = *b - *a;
+        let ac = *c - *a;
+
+        ab.cross(&ac) == Point3::new(0, 0, 0)
+    }
+
+    fn is_coplanar(a: &Point3, b: &Point3, c: &Point3, d: &Point3) -> bool {
+        let ab = *b - *a;
+        let ac = *c - *a;
+        let ad = *d - *a;
+
+        ab.dot(&ac.cross(&ad)) == 0
     }
 }
 
@@ -124,12 +179,8 @@ struct ConvexHull3 {
 impl ConvexHull3 {
     unsafe fn try_new(p: &mut Vec<Point3>) -> Self {
         let n = p.len();
-        let check = ConvexHull3::prepare(p);
+        ConvexHull3::prepare(p);
         let mut f: Vec<*mut Face> = Vec::new();
-
-        if !check {
-            return Self { faces: f };
-        }
 
         let mut new_face: Vec<*mut Face> = vec![ptr::null_mut(); n];
         let mut conflict = vec![Vec::new(); n];
@@ -152,11 +203,11 @@ impl ConvexHull3 {
             for f in [f1, f2].iter() {
                 let q = (p[i] - p[(*(*f)).a]).dot(&(*(*f)).q);
 
-                if q > 1e-9 {
+                if q > 0 {
                     conflict[i].push(*f);
                 }
 
-                if q >= -1e-9 {
+                if q >= 0 {
                     (*(*f)).points.push(i);
                 }
             }
@@ -222,8 +273,7 @@ impl ConvexHull3 {
                             &mut (*combined_face).points,
                             |x| {
                                 !(x > i
-                                    && (p[x] - p[(*combined_face).a]).dot(&(*combined_face).q)
-                                        > 1e-9)
+                                    && (p[x] - p[(*combined_face).a]).dot(&(*combined_face).q) > 0)
                             },
                         );
                         (*combined_face).points.truncate(pos);
@@ -260,54 +310,29 @@ impl ConvexHull3 {
         Self { faces: f }
     }
 
-    fn is_coplanar(p: &Vec<Point3>) -> bool {
+    fn prepare(p: &mut Vec<Point3>) {
         let n = p.len();
 
-        let mut vec = Vec::new();
-        vec.push(0);
+        for _ in 0..n {
+            let idx1 = Rng::new().next(n as u64) as usize;
+            let idx2 = Rng::new().next(n as u64) as usize;
 
-        for i in 1..n {
-            if vec.len() == 1 {
-                if (p[vec[0]] - p[i]).abs() > 1e-9 {
-                    vec.push(i);
-                }
-            } else if vec.len() == 2 {
-                if (p[vec[1]] - p[vec[0]]).cross(&(p[i] - p[vec[0]])).abs() > 1e-9 {
-                    vec.push(i);
-                }
-            } else if (p[i] - p[vec[0]])
-                .dot(&(p[vec[1]] - p[vec[0]]).cross(&(p[vec[2]] - p[vec[0]])))
-                .abs()
-                > 1e-9
-            {
-                vec.push(i);
-                break;
-            }
+            p.swap(idx1, idx2);
         }
 
-        vec.len() < 4
-    }
-
-    fn prepare(p: &mut Vec<Point3>) -> bool {
-        let n = p.len();
-
         let mut vec = Vec::new();
         vec.push(0);
 
         for i in 1..n {
             if vec.len() == 1 {
-                if (p[vec[0]] - p[i]).abs() > 1e-9 {
+                if p[vec[0]] - p[i] != Point3::new(0, 0, 0) {
                     vec.push(i);
                 }
             } else if vec.len() == 2 {
-                if (p[vec[1]] - p[vec[0]]).cross(&(p[i] - p[vec[0]])).abs() > 1e-9 {
+                if !Point3::is_colinear(&p[vec[0]], &p[vec[1]], &p[i]) {
                     vec.push(i);
                 }
-            } else if (p[i] - p[vec[0]])
-                .dot(&(p[vec[1]] - p[vec[0]]).cross(&(p[vec[2]] - p[vec[0]])))
-                .abs()
-                > 1e-9
-            {
+            } else if !Point3::is_coplanar(&p[vec[0]], &p[vec[1]], &p[vec[2]], &p[i]) {
                 vec.push(i);
                 break;
             }
@@ -329,8 +354,6 @@ impl ConvexHull3 {
 
         vec2.append(p);
         *p = vec2;
-
-        true
     }
 
     fn glue(f1: *mut Face, f2: *mut Face, e1: &mut *mut Edge, e2: &mut *mut Edge) {
@@ -372,100 +395,60 @@ impl ConvexHull3 {
     }
 }
 
-fn check_omnicircumnavigation(points: &Vec<Point3>) -> bool {
-    let mut points_new = Vec::new();
-
+fn check_omnicircumnavigation(points: &mut Vec<Point3>) -> bool {
     // Check colinear
-    for i in 0..points.len() {
-        let mut found = false;
-
-        for j in i + 1..points.len() {
-            // It is colinear
-            if points[i]
-                .cross(&points[j])
-                .equals(&Point3::new(0.0, 0.0, 0.0))
-            {
-                // Angle is 180 degree
-                if points[i].dot(&points[j]) < 0.0 {
-                    return true;
-                } else {
-                    found = true;
-                    break;
-                }
-            }
-        }
-
-        // Insert non-colinear point only
-        if !found {
-            points_new.push(points[i]);
+    for i in 2..points.len() {
+        if !Point3::is_colinear(&points[0], &points[1], &points[i]) {
+            points.swap(2, i);
+            break;
         }
     }
 
-    points_new.push(Point3::new(0.0, 0.0, 0.0));
+    let mut is_coplanar = true;
+
+    // Check coplanar
+    for i in 3..points.len() {
+        if !Point3::is_coplanar(&points[0], &points[1], &points[2], &points[i]) {
+            points.swap(3, i);
+            is_coplanar = false;
+            break;
+        }
+    }
+
+    if is_coplanar {
+        points.push(Point3::new(1_234_567, 2_345_678, 3_456_789));
+    }
 
     unsafe {
-        if ConvexHull3::is_coplanar(&mut points_new) {
-            let mut points1 = points_new.clone();
-            points1.push(Point3::new(3_000_000.0, -2_000_000.0, 1_500_000.0));
+        let convex_hull = ConvexHull3::try_new(points);
+        let mut vertices = Vec::new();
 
-            let convex_hull1 = ConvexHull3::try_new(&mut points1);
-            let mut ret1 = true;
+        for face in convex_hull.faces.iter() {
+            let a = points[(*(*face)).a];
+            let b = points[(*(*face)).b];
+            let c = points[(*(*face)).c];
 
-            for face in convex_hull1.faces.iter() {
-                let a = points1[(*(*face)).a];
-                let b = points1[(*(*face)).b];
-                let c = points1[(*(*face)).c];
+            if a.equals(&Point3::new(0, 0, 0))
+                || b.equals(&Point3::new(0, 0, 0))
+                || c.equals(&Point3::new(0, 0, 0))
+            {
+                let cross = (b - a).cross(&(c - a));
 
-                if a.equals(&Point3::new(0.0, 0.0, 0.0))
-                    || b.equals(&Point3::new(0.0, 0.0, 0.0))
-                    || c.equals(&Point3::new(0.0, 0.0, 0.0))
-                {
-                    ret1 = false;
-                    break;
+                if vertices.len() == 0 {
+                    vertices.push(cross);
+                } else if vertices.len() == 1 {
+                    if vertices[0].cross(&cross) != Point3::new(0, 0, 0) {
+                        vertices.push(cross);
+                    }
+                } else {
+                    if vertices[0].cross(&vertices[1]).dot(&cross) != 0 {
+                        return false;
+                    }
                 }
             }
-
-            let mut points2 = points_new.clone();
-            points2.push(Point3::new(-3_000_000.0, 2_000_000.0, -1_500_000.0));
-
-            let convex_hull2 = ConvexHull3::try_new(&mut points2);
-            let mut ret2 = true;
-
-            for face in convex_hull2.faces.iter() {
-                let a = points2[(*(*face)).a];
-                let b = points2[(*(*face)).b];
-                let c = points2[(*(*face)).c];
-
-                if a.equals(&Point3::new(0.0, 0.0, 0.0))
-                    || b.equals(&Point3::new(0.0, 0.0, 0.0))
-                    || c.equals(&Point3::new(0.0, 0.0, 0.0))
-                {
-                    ret2 = false;
-                    break;
-                }
-            }
-
-            ret1 || ret2
-        } else {
-            let convex_hull = ConvexHull3::try_new(&mut points_new);
-            let mut ret = true;
-
-            for face in convex_hull.faces.iter() {
-                let a = points_new[(*(*face)).a];
-                let b = points_new[(*(*face)).b];
-                let c = points_new[(*(*face)).c];
-
-                if a.equals(&Point3::new(0.0, 0.0, 0.0))
-                    || b.equals(&Point3::new(0.0, 0.0, 0.0))
-                    || c.equals(&Point3::new(0.0, 0.0, 0.0))
-                {
-                    ret = false;
-                    break;
-                }
-            }
-
-            ret
         }
+
+        true
     }
 }
 
@@ -480,17 +463,17 @@ fn main() {
 
     for i in 1..=t {
         let n = scan.token::<usize>();
-        let mut points = vec![Point3::new(0.0, 0.0, 0.0); n];
+        let mut points = vec![Point3::new(0, 0, 0); n + 1];
 
         for j in 0..n {
             points[j] = Point3::new(
-                scan.token::<f64>(),
-                scan.token::<f64>(),
-                scan.token::<f64>(),
+                scan.token::<i128>(),
+                scan.token::<i128>(),
+                scan.token::<i128>(),
             );
         }
 
-        let ret = check_omnicircumnavigation(&points);
+        let ret = check_omnicircumnavigation(&mut points);
 
         writeln!(out, "Case #{i}: {}", if ret { "YES" } else { "NO" }).unwrap();
     }

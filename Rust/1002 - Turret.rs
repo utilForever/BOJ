@@ -50,17 +50,16 @@ fn main() {
             scan.token::<i64>(),
         );
 
-        let dist = (x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2);
+        let dist = (x1 - x2).pow(2) + (y1 - y2).pow(2);
         let radius_inner = (r1 - r2) * (r1 - r2);
         let radius_outer = (r1 + r2) * (r1 + r2);
 
-        if dist == 0 {
-            if radius_inner == 0 {
-                writeln!(out, "-1").unwrap();
-            } else {
-                writeln!(out, "0").unwrap();
-            }
-        } else if dist == radius_inner || dist == radius_outer {
+        if x1 == x2 && y1 == y2 && r1 == r2 && r1 != 0 {
+            writeln!(out, "-1").unwrap();
+        } else if dist == radius_inner
+            || dist == radius_outer
+            || (x1 == x2 && y1 == y2 && r1 == r2 && r1 == 0)
+        {
             writeln!(out, "1").unwrap();
         } else if dist > radius_inner && dist < radius_outer {
             writeln!(out, "2").unwrap();

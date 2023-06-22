@@ -52,6 +52,6 @@ fn main() {
         let count = scores.iter().filter(|&x| (*x as f64) > avg).count();
         let percent = count as f64 / n as f64 * 100.0;
 
-        writeln!(out, "{:.3}%", percent).unwrap();
+        writeln!(out, "{:.3}%", (percent * 1000.0).round() / 1000.0).unwrap();
     }
 }

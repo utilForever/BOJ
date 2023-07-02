@@ -1,71 +1,75 @@
-use std::io;
+use io::Write;
+use std::{io, str};
 
-fn input_strings() -> Vec<String> {
-    let mut s = String::new();
-
-    io::stdin().read_line(&mut s).unwrap();
-
-    let values: Vec<String> = s
-        .as_mut_str()
-        .split_whitespace()
-        .map(|s| s.parse().unwrap())
-        .collect();
-
-    values
+pub struct UnsafeScanner<R> {
+    reader: R,
+    buf_str: Vec<u8>,
+    buf_iter: str::SplitAsciiWhitespace<'static>,
 }
 
-fn input_integers() -> Vec<i64> {
-    let mut s = String::new();
+impl<R: io::BufRead> UnsafeScanner<R> {
+    pub fn new(reader: R) -> Self {
+        Self {
+            reader,
+            buf_str: vec![],
+            buf_iter: "".split_ascii_whitespace(),
+        }
+    }
 
-    io::stdin().read_line(&mut s).unwrap();
-
-    let values: Vec<i64> = s
-        .as_mut_str()
-        .split_whitespace()
-        .map(|s| s.parse().unwrap())
-        .collect();
-
-    values
+    pub fn token<T: str::FromStr>(&mut self) -> T {
+        loop {
+            if let Some(token) = self.buf_iter.next() {
+                return token.parse().ok().expect("Failed parse");
+            }
+            self.buf_str.clear();
+            self.reader
+                .read_until(b'\n', &mut self.buf_str)
+                .expect("Failed read");
+            self.buf_iter = unsafe {
+                let slice = str::from_utf8_unchecked(&self.buf_str);
+                std::mem::transmute(slice.split_ascii_whitespace())
+            }
+        }
+    }
 }
 
 fn main() {
+    let (stdin, stdout) = (io::stdin(), io::stdout());
+    let mut scan = UnsafeScanner::new(stdin.lock());
+    let mut out = io::BufWriter::new(stdout.lock());
+
+    let n = scan.token::<i64>();
     let mut stack = Vec::new();
 
-    let n = input_integers()[0];
-
     for _ in 0..n {
-        let order = input_strings();
+        let command = scan.token::<String>();
 
-        match order[0].as_str() {
+        match command.as_str() {
             "push" => {
-                let num = order[1].parse::<i64>().unwrap();
-                stack.push(num);
+                let x = scan.token::<i64>();
+                stack.push(x);
             }
             "pop" => {
                 if stack.is_empty() {
-                    println!("-1");
+                    writeln!(out, "-1").unwrap();
                 } else {
-                    println!("{}", stack.pop().unwrap());
+                    writeln!(out, "{}", stack.pop().unwrap()).unwrap();
                 }
             }
             "size" => {
-                println!("{}", stack.len());
+                writeln!(out, "{}", stack.len()).unwrap();
             }
             "empty" => {
-                if stack.is_empty() {
-                    println!("1");
-                } else {
-                    println!("0");
-                }
+                writeln!(out, "{}", if stack.is_empty() { 1 } else { 0 }).unwrap();
             }
             "top" => {
                 if stack.is_empty() {
-                    println!("-1");
+                    writeln!(out, "-1").unwrap();
                 } else {
-                    println!("{}", stack[stack.len() - 1]);
+                    writeln!(out, "{}", stack.last().unwrap()).unwrap();
                 }
             }
-            _ => {}
+            _ => unreachable!(),
         }
     }
 }

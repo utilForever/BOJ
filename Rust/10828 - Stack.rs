@@ -50,11 +50,7 @@ fn main() {
                 stack.push(x);
             }
             "pop" => {
-                if stack.is_empty() {
-                    writeln!(out, "-1").unwrap();
-                } else {
-                    writeln!(out, "{}", stack.pop().unwrap()).unwrap();
-                }
+                writeln!(out, "{}", stack.pop().unwrap_or(-1)).unwrap();
             }
             "size" => {
                 writeln!(out, "{}", stack.len()).unwrap();
@@ -63,11 +59,7 @@ fn main() {
                 writeln!(out, "{}", if stack.is_empty() { 1 } else { 0 }).unwrap();
             }
             "top" => {
-                if stack.is_empty() {
-                    writeln!(out, "-1").unwrap();
-                } else {
-                    writeln!(out, "{}", stack.last().unwrap()).unwrap();
-                }
+                writeln!(out, "{}", stack.last().unwrap_or(&-1)).unwrap();
             }
             _ => unreachable!(),
         }

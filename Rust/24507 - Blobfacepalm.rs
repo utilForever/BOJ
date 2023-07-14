@@ -1,32 +1,54 @@
-use std::{io, process};
+use io::Write;
+use std::{io, str};
 
-fn input_integers() -> Vec<usize> {
-    let mut s = String::new();
-
-    io::stdin().read_line(&mut s).unwrap();
-
-    let values: Vec<usize> = s
-        .as_mut_str()
-        .split_whitespace()
-        .map(|s| s.parse().unwrap())
-        .collect();
-
-    values
+pub struct UnsafeScanner<R> {
+    reader: R,
+    buf_str: Vec<u8>,
+    buf_iter: str::SplitAsciiWhitespace<'static>,
 }
 
-// Reference: https://arxiv.org/pdf/1507.00315.pdf
+impl<R: io::BufRead> UnsafeScanner<R> {
+    pub fn new(reader: R) -> Self {
+        Self {
+            reader,
+            buf_str: vec![],
+            buf_iter: "".split_ascii_whitespace(),
+        }
+    }
+
+    pub fn token<T: str::FromStr>(&mut self) -> T {
+        loop {
+            if let Some(token) = self.buf_iter.next() {
+                return token.parse().ok().expect("Failed parse");
+            }
+            self.buf_str.clear();
+            self.reader
+                .read_until(b'\n', &mut self.buf_str)
+                .expect("Failed read");
+            self.buf_iter = unsafe {
+                let slice = str::from_utf8_unchecked(&self.buf_str);
+                std::mem::transmute(slice.split_ascii_whitespace())
+            }
+        }
+    }
+}
+
 fn main() {
-    let n = input_integers()[0];
+    let (stdin, stdout) = (io::stdin(), io::stdout());
+    let mut scan = UnsafeScanner::new(stdin.lock());
+    let mut out = io::BufWriter::new(stdout.lock());
+
+    let n = scan.token::<usize>();
 
     if n == 4 {
-        println!("Yes");
-        println!("1 2 1 3 2 0 0 3");
+        writeln!(out, "Yes").unwrap();
+        writeln!(out, "1 2 1 3 2 0 0 3").unwrap();
         return;
     }
 
     if n == 5 {
-        println!("Yes");
-        println!("2 4 1 2 1 3 4 0 0 3");
+        writeln!(out, "Yes").unwrap();
+        writeln!(out, "2 4 1 2 1 3 4 0 0 3").unwrap();
         return;
     }
 
@@ -68,11 +90,13 @@ fn main() {
                 arr[(3 * k - 1 - r) as usize] = val;
             }
 
-            println!("Yes");
+            writeln!(out, "Yes").unwrap();
+
             for idx in 1..=(2 * n) {
-                print!("{} ", arr[idx] - 1);
+                write!(out, "{} ", arr[idx] - 1).unwrap();
             }
-            println!();
+
+            writeln!(out).unwrap();
         }
         1 => {
             let mut arr = vec![0; (n + 1) * 2];
@@ -111,14 +135,15 @@ fn main() {
                 arr[(3 * k + 1 - r) as usize] = val;
             }
 
-            println!("Yes");
+            writeln!(out, "Yes").unwrap();
+
             for idx in 1..=(2 * n) {
-                print!("{} ", arr[idx] - 1);
+                write!(out, "{} ", arr[idx] - 1).unwrap();
             }
-            println!();
+
+            writeln!(out).unwrap();
         }
-        2 => println!("No"),
-        3 => println!("No"),
-        _ => process::exit(1),
+        2 | 3 => writeln!(out, "No").unwrap(),
+        _ => unreachable!(),
     }
 }

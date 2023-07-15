@@ -1,43 +1,57 @@
-use std::io;
+use io::Write;
+use std::{io, str};
 
-fn input_integers() -> Vec<i64> {
-    let mut s = String::new();
-
-    io::stdin().read_line(&mut s).unwrap();
-
-    let values: Vec<i64> = s
-        .as_mut_str()
-        .split_whitespace()
-        .map(|s| s.parse().unwrap())
-        .collect();
-
-    values
+pub struct UnsafeScanner<R> {
+    reader: R,
+    buf_str: Vec<u8>,
+    buf_iter: str::SplitAsciiWhitespace<'static>,
 }
 
-fn input_strings() -> Vec<String> {
-    let mut s = String::new();
+impl<R: io::BufRead> UnsafeScanner<R> {
+    pub fn new(reader: R) -> Self {
+        Self {
+            reader,
+            buf_str: vec![],
+            buf_iter: "".split_ascii_whitespace(),
+        }
+    }
 
-    io::stdin().read_line(&mut s).unwrap();
-
-    let values: Vec<String> = s
-        .as_mut_str()
-        .split_whitespace()
-        .map(|s| s.parse().unwrap())
-        .collect();
-
-    values
+    pub fn token<T: str::FromStr>(&mut self) -> T {
+        loop {
+            if let Some(token) = self.buf_iter.next() {
+                return token.parse().ok().expect("Failed parse");
+            }
+            self.buf_str.clear();
+            self.reader
+                .read_until(b'\n', &mut self.buf_str)
+                .expect("Failed read");
+            self.buf_iter = unsafe {
+                let slice = str::from_utf8_unchecked(&self.buf_str);
+                std::mem::transmute(slice.split_ascii_whitespace())
+            }
+        }
+    }
 }
 
 fn main() {
-    let n = input_integers()[0] as usize;
-    let mut nums = input_strings();
+    let (stdin, stdout) = (io::stdin(), io::stdout());
+    let mut scan = UnsafeScanner::new(stdin.lock());
+    let mut out = io::BufWriter::new(stdout.lock());
 
-    for i in 0..(n - 1) {
+    let n = scan.token::<usize>();
+    let mut nums = vec![String::new(); n];
+
+    for i in 0..n {
+        nums[i] = scan.token::<String>();
+    }
+
+    for i in 0..n - 1 {
         let mut idx = i;
 
-        for j in (i + 1)..n {
+        for j in i + 1..n {
             let mut str1 = nums[j].clone();
             str1.push_str(&nums[idx]);
+
             let mut str2 = nums[idx].clone();
             str2.push_str(&nums[j]);
 
@@ -46,19 +60,23 @@ fn main() {
             }
         }
 
-        let temp = nums[idx].clone();
-        nums[idx] = nums[i].clone();
-        nums[i] = temp;
+        nums.swap(i, idx);
     }
 
     let mut ret = String::new();
+
     for num in nums.iter() {
         ret.push_str(&num);
     }
 
-    if nums.iter().filter(|s| s == &"0").count() == n {
-        println!("0");
-    } else {
-        println!("{}", ret);
-    }
+    writeln!(
+        out,
+        "{}",
+        if nums.iter().filter(|s| s == &"0").count() == n {
+            "0".to_string()
+        } else {
+            ret
+        }
+    )
+    .unwrap();
 }

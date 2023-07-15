@@ -1,49 +1,69 @@
-use std::io;
+use io::Write;
+use std::{io, str};
 
-fn input_integers() -> Vec<u128> {
-    let mut s = String::new();
-
-    io::stdin().read_line(&mut s).unwrap();
-
-    let values: Vec<u128> = s
-        .as_mut_str()
-        .split_whitespace()
-        .map(|s| s.parse().unwrap())
-        .collect();
-
-    values
+pub struct UnsafeScanner<R> {
+    reader: R,
+    buf_str: Vec<u8>,
+    buf_iter: str::SplitAsciiWhitespace<'static>,
 }
 
-fn main() {
-    let nums = input_integers();
-    let (k, n) = (nums[0] as usize, nums[1] as usize);
-
-    let mut raw_nums = vec![0; k];
-    let mut max = 0;
-    for i in 0..k {
-        let num = input_integers()[0];
-        raw_nums[i] = num;
-
-        if num > max {
-            max = num;
+impl<R: io::BufRead> UnsafeScanner<R> {
+    pub fn new(reader: R) -> Self {
+        Self {
+            reader,
+            buf_str: vec![],
+            buf_iter: "".split_ascii_whitespace(),
         }
     }
 
-    let mut nums = Vec::new();
+    pub fn token<T: str::FromStr>(&mut self) -> T {
+        loop {
+            if let Some(token) = self.buf_iter.next() {
+                return token.parse().ok().expect("Failed parse");
+            }
+            self.buf_str.clear();
+            self.reader
+                .read_until(b'\n', &mut self.buf_str)
+                .expect("Failed read");
+            self.buf_iter = unsafe {
+                let slice = str::from_utf8_unchecked(&self.buf_str);
+                std::mem::transmute(slice.split_ascii_whitespace())
+            }
+        }
+    }
+}
+
+fn main() {
+    let (stdin, stdout) = (io::stdin(), io::stdout());
+    let mut scan = UnsafeScanner::new(stdin.lock());
+    let mut out = io::BufWriter::new(stdout.lock());
+
+    let (k, n) = (scan.token::<usize>(), scan.token::<usize>());
+    let mut nums_raw = vec![0; k];
+    let mut max = 0;
+
     for i in 0..k {
-        nums.push(raw_nums[i].to_string());
+        nums_raw[i] = scan.token::<u128>();
+        max = max.max(nums_raw[i]);
     }
 
-    for _ in 0..(n - k) {
+    let mut nums = vec![String::new(); k];
+
+    for i in 0..k {
+        nums[i] = nums_raw[i].to_string();
+    }
+
+    for _ in 0..n - k {
         nums.push(max.to_string());
     }
 
-    for i in 0..(n - 1) {
+    for i in 0..n - 1 {
         let mut idx = i;
 
-        for j in (i + 1)..n {
+        for j in i + 1..n {
             let mut str1 = nums[j].clone();
             str1.push_str(&nums[idx]);
+
             let mut str2 = nums[idx].clone();
             str2.push_str(&nums[j]);
 
@@ -52,15 +72,14 @@ fn main() {
             }
         }
 
-        let temp = nums[idx].clone();
-        nums[idx] = nums[i].clone();
-        nums[i] = temp;
+        nums.swap(i, idx);
     }
 
     let mut ret = String::new();
+
     for num in nums.iter() {
         ret.push_str(&num);
     }
 
-    println!("{}", ret);
+    writeln!(out, "{ret}").unwrap();
 }

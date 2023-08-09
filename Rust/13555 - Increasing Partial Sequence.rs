@@ -33,28 +33,53 @@ impl<R: io::BufRead> UnsafeScanner<R> {
     }
 }
 
-fn sum(tree: &Vec<Vec<i64>>, y: usize, x: usize) -> i64 {
-    let mut sum = 0;
-    let mut x = x as i64;
+static MOD: i64 = 5_000_000;
 
-    if y == 0 {
-        return 1;
-    }
-
-    while x > 0 {
-        sum = (sum + tree[y][x as usize]) % 5_000_000;
-        x -= x & -x;
-    }
-
-    sum
+#[derive(Clone, Debug)]
+struct Node {
+    val: i64,
 }
 
-fn update(tree: &mut Vec<Vec<i64>>, y: usize, x: usize, diff: i64) {
-    let mut x = x as i64;
+impl Node {
+    fn new(val: i64) -> Self {
+        Self { val }
+    }
+}
 
-    while x <= 100000 {
-        tree[y][x as usize] = (tree[y][x as usize] + diff) % 5_000_000;
-        x += x & -x;
+struct FenwickTree {
+    data: Vec<Vec<Node>>,
+}
+
+impl FenwickTree {
+    pub fn new(len_partial: usize, len_total: usize) -> Self {
+        Self {
+            data: vec![vec![Node::new(0); len_total + 1]; len_partial + 1],
+        }
+    }
+
+    pub fn update(&mut self, len_partial: usize, len_total: usize, diff: i64) {
+        let mut len_total = len_total as i64;
+
+        while len_total <= 100_000 {
+            self.data[len_partial][len_total as usize].val = (self.data[len_partial][len_total as usize].val + diff) % MOD;
+            len_total += len_total & -len_total;
+        }
+    }
+
+    pub fn query(&mut self, len_partial: usize, len_total: usize) -> Node {
+        if len_partial == 0 {
+            return Node::new(1);
+        }
+
+        let mut len_total = len_total as i64;
+        let mut ret = 0;
+
+        while len_total > 0 {
+            ret = (ret + self.data[len_partial][len_total as usize].val) % MOD;
+            len_total -= len_total & -len_total;
+        }
+
+        Node::new(ret)
     }
 }
 
@@ -64,28 +89,21 @@ fn main() {
     let mut out = io::BufWriter::new(stdout.lock());
 
     let (n, k) = (scan.token::<usize>(), scan.token::<usize>());
-
-    let mut arr = vec![0; n + 1];
-    let mut tree = vec![vec![0; 100001]; k + 1];
+    let mut nums = vec![0; n + 1];
 
     for i in 1..=n {
-        arr[i] = scan.token();
+        nums[i] = scan.token::<usize>();
     }
 
-    let mut cnt = vec![vec![0; n + 1]; k + 1];
+    let mut tree = FenwickTree::new(k, 100_000);
+    let max = nums.iter().max().unwrap().clone();
 
     for i in 1..=n {
         for j in 1..=k {
-            cnt[j][i] = sum(&tree, j - 1, arr[i] - 1);
-            update(&mut tree, j, arr[i], cnt[j][i]);
+            let ret = tree.query(j - 1, nums[i] - 1);
+            tree.update(j, nums[i], ret.val);
         }
     }
 
-    let mut ret = 0;
-
-    for i in 1..=n {
-        ret = (ret + cnt[k][i]) % 5_000_000;
-    }
-
-    writeln!(out, "{}", ret).unwrap();
+    writeln!(out, "{}", tree.query(k, max).val).unwrap();
 }

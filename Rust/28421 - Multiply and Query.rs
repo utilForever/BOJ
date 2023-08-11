@@ -53,6 +53,11 @@ fn main() {
         if command == 1 {
             let x = scan.token::<i64>();
 
+            if n == 1 {
+                writeln!(out, "0").unwrap();
+                continue;
+            }
+
             if x == 0 {
                 writeln!(out, "{}", if cnt[0] == 0 { 0 } else { 1 }).unwrap();
             } else {

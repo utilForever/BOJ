@@ -1,5 +1,5 @@
 use io::Write;
-use std::{io, ops::Sub, str};
+use std::{io, str, ops::Sub};
 
 pub struct UnsafeScanner<R> {
     reader: R,
@@ -33,17 +33,27 @@ impl<R: io::BufRead> UnsafeScanner<R> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct Point {
-    x: i32,
-    y: i32,
-    dx: i32,
-    dy: i32,
+    x: i64,
+    y: i64,
 }
 
 impl Point {
-    fn new(x: i32, y: i32, dx: i32, dy: i32) -> Self {
-        Self { x, y, dx, dy }
+    fn new(x: i64, y: i64) -> Self {
+        Self { x, y }
+    }
+
+    fn ccw(p1: Point, p2: Point, p3: Point) -> i64 {
+        let (x1, y1) = (p1.x, p1.y);
+        let (x2, y2) = (p2.x, p2.y);
+        let (x3, y3) = (p3.x, p3.y);
+
+        (x2 - x1) * (y3 - y1) - (x3 - x1) * (y2 - y1)
+    }
+
+    fn dist_squared(p1: &Point, p2: &Point) -> i64 {
+        (p1.x - p2.x).pow(2) + (p1.y - p2.y).pow(2)
     }
 }
 
@@ -54,39 +64,58 @@ impl Sub for Point {
         Self {
             x: self.x - other.x,
             y: self.y - other.y,
-            dx: 0,
-            dy: 0,
         }
     }
 }
 
-fn calculate_ccw(p1: Point, p2: Point, p3: Point) -> i64 {
-    let (x1, y1) = (p1.x as i64, p1.y as i64);
-    let (x2, y2) = (p2.x as i64, p2.y as i64);
-    let (x3, y3) = (p3.x as i64, p3.y as i64);
+struct ConvexHull {
+    points: Vec<Point>,
+    hull: Vec<Point>,
+}
 
-    let res = (x2 - x1) * (y3 - y1) - (x3 - x1) * (y2 - y1);
-    if res > 0 {
-        1
-    } else if res < 0 {
-        -1
-    } else {
-        0
+impl ConvexHull {
+    fn new(points: Vec<Point>) -> Self {
+        Self {
+            points,
+            hull: Vec::new(),
+        }
     }
-}
 
-fn next_to_top(stack: &mut Vec<Point>) -> Point {
-    let top = stack.pop().unwrap();
-    let next = stack.pop().unwrap();
+    fn make(&mut self, exclude_colinear: bool) {
+        let mut upper = Vec::new();
+        let mut lower = Vec::new();
 
-    stack.push(next.clone());
-    stack.push(top);
+        for p in self.points.iter() {
+            while upper.len() >= 2
+                && Point::ccw(upper[upper.len() - 1], *p, upper[upper.len() - 2])
+                    < exclude_colinear as i64
+            {
+                upper.pop();
+            }
 
-    next
-}
+            upper.push(*p);
+        }
 
-fn get_dist(p1: &Point, p2: &Point) -> i64 {
-    (p1.x - p2.x) as i64 * (p1.x - p2.x) as i64 + (p1.y - p2.y) as i64 * (p1.y - p2.y) as i64
+        for p in self.points.iter().rev() {
+            while lower.len() >= 2
+                && Point::ccw(lower[lower.len() - 1], *p, lower[lower.len() - 2])
+                    < exclude_colinear as i64
+            {
+                lower.pop();
+            }
+
+            lower.push(*p);
+        }
+
+        upper.pop();
+        lower.pop();
+
+        self.hull = upper.into_iter().chain(lower.into_iter()).collect();
+    }
+
+    fn hull(&self) -> &Vec<Point> {
+        &self.hull
+    }
 }
 
 fn main() {
@@ -94,102 +123,43 @@ fn main() {
     let mut scan = UnsafeScanner::new(stdin.lock());
     let mut out = io::BufWriter::new(stdout.lock());
 
-    let n = scan.token();
+    let n = scan.token::<usize>();
+    let mut points = vec![Point::new(0, 0); n];
 
-    let mut points = Vec::new();
-
-    for _ in 0..n {
-        points.push(Point::new(scan.token(), scan.token(), 0, 0));
+    for i in 0..n {
+        points[i] = Point::new(scan.token::<i64>(), scan.token::<i64>());
     }
 
-    points.sort_by(|a, b| {
-        if a.dx as i64 * b.dy as i64 != a.dy as i64 * b.dx as i64 {
-            return (a.dx as i64 * b.dy as i64)
-                .cmp(&(a.dy as i64 * b.dx as i64))
-                .reverse();
-        }
+    points.sort();
 
-        if a.y != b.y {
-            return a.y.cmp(&b.y);
-        }
+    let mut convex_hull = ConvexHull::new(points.clone());
+    convex_hull.make(true);
 
-        a.x.cmp(&b.x)
-    });
+    let hull = convex_hull.hull().clone();
 
-    for i in 1..n {
-        points[i].dx = points[i].x - points[0].x;
-        points[i].dy = points[i].y - points[0].y;
-    }
-
-    let first_point = points.remove(0);
-    points.sort_by(|a, b| {
-        if a.dx as i64 * b.dy as i64 != a.dy as i64 * b.dx as i64 {
-            return (a.dx as i64 * b.dy as i64)
-                .cmp(&(a.dy as i64 * b.dx as i64))
-                .reverse();
-        }
-
-        if a.y != b.y {
-            return a.y.cmp(&b.y);
-        }
-
-        a.x.cmp(&b.x)
-    });
-    points.insert(0, first_point);
-
-    let mut stack = Vec::new();
-    stack.push(points[0].clone());
-    stack.push(points[1].clone());
-
-    for i in 2..n {
-        while stack.len() >= 2
-            && calculate_ccw(
-                stack.last().unwrap().clone(),
-                next_to_top(&mut stack),
-                points[i].clone(),
-            ) >= 0
-        {
-            stack.pop();
-        }
-
-        stack.push(points[i].clone());
-    }
-
-    let mut convex_hull = vec![Point::new(0, 0, 0, 0); stack.len()];
-    let mut index = stack.len() - 1;
-
-    while !stack.is_empty() {
-        convex_hull[index] = stack.pop().unwrap();
-        index -= 1;
-    }
-
-    let mut max_dist = 0;
-    let mut max_dist_points = (Point::new(0, 0, 0, 0), Point::new(0, 0, 0, 0));
+    let mut ret = 0;
     let mut c = 1;
 
-    for a in 0..convex_hull.len() {
-        let b = (a + 1) % convex_hull.len();
+    for a in 0..hull.len() {
+        let b = (a + 1) % hull.len();
 
         loop {
-            let d = (c + 1) % convex_hull.len();
+            let d = (c + 1) % hull.len();
 
-            let zero = Point::new(0, 0, 0, 0);
-            let ab = convex_hull[b].clone() - convex_hull[a].clone();
-            let cd = convex_hull[d].clone() - convex_hull[c].clone();
+            let zero = Point::new(0, 0);
+            let ab = hull[b].clone() - hull[a].clone();
+            let cd = hull[d].clone() - hull[c].clone();
 
-            if calculate_ccw(zero, ab, cd) > 0 {
+            if Point::ccw(zero, ab, cd) > 0 {
                 c = d;
             } else {
                 break;
             }
         }
 
-        let dist = get_dist(&convex_hull[a], &convex_hull[c]);
-        if dist > max_dist {
-            max_dist = dist;
-            max_dist_points = (convex_hull[a].clone(), convex_hull[c].clone());
-        }
+        let dist = Point::dist_squared(&hull[a], &hull[c]);
+        ret = ret.max(dist);
     }
 
-    writeln!(out, "{}", get_dist(&max_dist_points.0, &max_dist_points.1)).unwrap();
+    writeln!(out, "{ret}").unwrap();
 }

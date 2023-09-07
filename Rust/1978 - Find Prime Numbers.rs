@@ -1,6 +1,39 @@
-use std::io;
+use io::Write;
+use std::{io, str};
 
-fn is_prime(n: i32) -> bool {
+pub struct UnsafeScanner<R> {
+    reader: R,
+    buf_str: Vec<u8>,
+    buf_iter: str::SplitAsciiWhitespace<'static>,
+}
+
+impl<R: io::BufRead> UnsafeScanner<R> {
+    pub fn new(reader: R) -> Self {
+        Self {
+            reader,
+            buf_str: vec![],
+            buf_iter: "".split_ascii_whitespace(),
+        }
+    }
+
+    pub fn token<T: str::FromStr>(&mut self) -> T {
+        loop {
+            if let Some(token) = self.buf_iter.next() {
+                return token.parse().ok().expect("Failed parse");
+            }
+            self.buf_str.clear();
+            self.reader
+                .read_until(b'\n', &mut self.buf_str)
+                .expect("Failed read");
+            self.buf_iter = unsafe {
+                let slice = str::from_utf8_unchecked(&self.buf_str);
+                std::mem::transmute(slice.split_ascii_whitespace())
+            }
+        }
+    }
+}
+
+fn is_prime(n: i64) -> bool {
     if n <= 1 {
         return false;
     }
@@ -14,31 +47,25 @@ fn is_prime(n: i32) -> bool {
     true
 }
 
-fn input_integers() -> Vec<i32> {
-    let mut s = String::new();
-
-    io::stdin().read_line(&mut s).unwrap();
-
-    let values: Vec<i32> = s
-        .as_mut_str()
-        .split_whitespace()
-        .map(|s| s.parse().unwrap())
-        .collect();
-
-    values
-}
-
 fn main() {
-    let n = input_integers()[0];
-    let nums = input_integers();
+    let (stdin, stdout) = (io::stdin(), io::stdout());
+    let mut scan = UnsafeScanner::new(stdin.lock());
+    let mut out = io::BufWriter::new(stdout.lock());
 
-    let mut cnt_primes = 0;
+    let n = scan.token::<usize>();
+    let mut nums = vec![0; n];
 
-    for i in 0..n as usize {
-        if is_prime(nums[i]) {
-            cnt_primes += 1;
+    for i in 0..n {
+        nums[i] = scan.token::<i64>();
+    }
+
+    let mut ret = 0;
+
+    for num in nums {
+        if is_prime(num) {
+            ret += 1;
         }
     }
 
-    println!("{}", cnt_primes);
+    writeln!(out, "{ret}").unwrap();
 }

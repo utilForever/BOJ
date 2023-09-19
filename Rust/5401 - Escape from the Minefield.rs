@@ -1054,6 +1054,7 @@ fn process_union(parent: &mut Vec<usize>, mut a: usize, mut b: usize) {
     parent[a] = b;
 }
 
+// Reference: https://justicehui.github.io/icpc/2023/02/01/BOJ5401/
 fn main() {
     let (stdin, stdout) = (io::stdin(), io::stdout());
     let mut scan = UnsafeScanner::new(stdin.lock());
@@ -1078,7 +1079,29 @@ fn main() {
         }
 
         let triangulation = triangulate::<Point>(&points).unwrap();
-        let triangles = triangulation.triangles;
+        let mut triangles = triangulation.triangles;
+
+        for i in 0..triangles.len() / 3 {
+            let a = triangles[3 * i];
+            let b = triangles[3 * i + 1];
+            let c = triangles[3 * i + 2];
+
+            if points[a] > points[b] {
+                triangles[3 * i] = b;
+                triangles[3 * i + 1] = a;
+            }
+
+            if points[a] > points[c] {
+                triangles[3 * i] = c;
+                triangles[3 * i + 2] = a;
+            }
+
+            if points[b] > points[c] {
+                triangles[3 * i + 1] = c;
+                triangles[3 * i + 2] = b;
+            }
+        }
+
         let mut arcs = Vec::new();
 
         for i in 0..triangles.len() / 3 {
@@ -1156,7 +1179,17 @@ fn main() {
                 parent[i] = i;
             }
 
-            vec.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+            vec.sort_by(|a, b| {
+                if a.0 == b.0 {
+                    if a.1 == b.1 {
+                        b.2.cmp(&a.2)
+                    } else {
+                        b.1.cmp(&a.1)
+                    }
+                } else {
+                    b.0.partial_cmp(&a.0).unwrap()
+                }
+            });
 
             for (radius, s, e) in vec {
                 if find(&mut parent, start as usize) == find(&mut parent, outer) {

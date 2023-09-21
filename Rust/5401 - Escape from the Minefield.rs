@@ -1078,80 +1078,73 @@ fn main() {
             ret = ret.min(point.x.hypot(point.y));
         }
 
+        if n < 3 {
+            let ret = (ret - 2.0).max(0.0);
+            let ret = (ret * ret * std::f64::consts::PI).floor() as i64;
+
+            writeln!(out, "{ret}").unwrap();
+            continue;
+        }
+
         let triangulation = triangulate::<Point>(&points).unwrap();
-        let mut triangles = triangulation.triangles;
+        let idx_triangles = triangulation.triangles;
+        let mut triangles = Vec::new();
 
-        for i in 0..triangles.len() / 3 {
-            let a = triangles[3 * i];
-            let b = triangles[3 * i + 1];
-            let c = triangles[3 * i + 2];
+        for i in 0..idx_triangles.len() / 3 {
+            triangles.push((points[idx_triangles[3 * i]], points[idx_triangles[3 * i + 1]], points[idx_triangles[3 * i + 2]]));
+        }
 
-            if points[a] > points[b] {
-                triangles[3 * i] = b;
-                triangles[3 * i + 1] = a;
+        for (a, b, c) in triangles.iter_mut() {
+            if a > b {
+                std::mem::swap(a, b);
             }
 
-            if points[a] > points[c] {
-                triangles[3 * i] = c;
-                triangles[3 * i + 2] = a;
+            if a > c {
+                std::mem::swap(a, c);
             }
 
-            if points[b] > points[c] {
-                triangles[3 * i + 1] = c;
-                triangles[3 * i + 2] = b;
+            if b > c {
+                std::mem::swap(b, c);
             }
         }
 
         let mut arcs = Vec::new();
 
-        for i in 0..triangles.len() / 3 {
-            let a = triangles[3 * i];
-            let b = triangles[3 * i + 1];
-            let c = triangles[3 * i + 2];
-
-            arcs.push((points[a], points[b]));
-            arcs.push((points[a], points[c]));
-            arcs.push((points[b], points[c]));
+        for (a, b, c) in triangles.iter() {
+            arcs.push((*a, *b));
+            arcs.push((*a, *c));
+            arcs.push((*b, *c));
         }
 
-        arcs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        arcs.sort_by(|a, b| if a.0 == b.0 { a.1.partial_cmp(&b.1).unwrap() } else { a.0.partial_cmp(&b.0).unwrap() });
         arcs.dedup();
 
         let mut faces = vec![Vec::new(); arcs.len()];
-        let outer = triangles.len() / 3;
+        let outer = triangles.len();
         let mut start = -1;
 
-        for i in 0..triangles.len() / 3 {
-            let a = triangles[3 * i];
-            let b = triangles[3 * i + 1];
-            let c = triangles[3 * i + 2];
+        for i in 0..triangles.len() {
+            let (a, b, c) = triangles[i];
 
             if in_triangle(
                 &Point { x: 0.0, y: 0.0 },
-                &points[a],
-                &points[b],
-                &points[c],
+                &a,
+                &b,
+                &c,
             ) {
                 start = i as i64;
             }
 
             let edges = vec![
-                (points[a], points[b]),
-                (points[a], points[c]),
-                (points[b], points[c]),
+                (a, b),
+                (a, c),
+                (b, c),
             ];
 
             for edge in edges {
-                let mut idx = 0;
-
-                while idx < arcs.len() - 1 {
-                    if arcs[idx] >= edge {
-                        break;
-                    }
-
-                    idx += 1;
-                }
-
+                let idx = arcs
+                    .binary_search_by(|probe| probe.partial_cmp(&edge).unwrap())
+                    .unwrap();
                 faces[idx].push(i);
             }
         }
@@ -1173,23 +1166,13 @@ fn main() {
         }
 
         if start != -1 {
-            let mut parent = vec![0; triangles.len() / 3 + 1];
+            let mut parent = vec![0; triangles.len() + 1];
 
             for i in 0..parent.len() {
                 parent[i] = i;
             }
 
-            vec.sort_by(|a, b| {
-                if a.0 == b.0 {
-                    if a.1 == b.1 {
-                        b.2.cmp(&a.2)
-                    } else {
-                        b.1.cmp(&a.1)
-                    }
-                } else {
-                    b.0.partial_cmp(&a.0).unwrap()
-                }
-            });
+            vec.sort_by(|a, b| b.partial_cmp(a).unwrap());
 
             for (radius, s, e) in vec {
                 if find(&mut parent, start as usize) == find(&mut parent, outer) {

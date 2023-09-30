@@ -1,9 +1,5 @@
 use io::Write;
-use std::{
-    cmp::Ordering,
-    io::{self, BufWriter, StdoutLock},
-    str,
-};
+use std::{io, str};
 
 pub struct UnsafeScanner<R> {
     reader: R,
@@ -37,420 +33,445 @@ impl<R: io::BufRead> UnsafeScanner<R> {
     }
 }
 
-type NodeRef = Option<Box<Node>>;
-
-#[derive(Clone)]
-pub struct Node {
+struct Node {
+    left: *mut Node,
+    right: *mut Node,
+    parent: *mut Node,
     value: i64,
-    cnt: usize,
-
+    count: i64,
     min: i64,
     max: i64,
     sum: i64,
-
-    is_dummy: bool,
-    is_flipped: bool,
-
-    left: NodeRef,
-    right: NodeRef,
+    flip: bool,
 }
 
 impl Node {
-    fn new_node_ref(value: i64) -> NodeRef {
-        Some(Box::new(Node {
+    fn new(value: i64) -> *mut Self {
+        Box::into_raw(Box::new(Self {
+            left: std::ptr::null_mut(),
+            right: std::ptr::null_mut(),
+            parent: std::ptr::null_mut(),
             value,
-            cnt: 1,
+            count: 1,
             min: value,
             max: value,
             sum: value,
-            is_dummy: false,
-            is_flipped: false,
-            left: None,
-            right: None,
+            flip: false,
         }))
     }
 
-    // fn get_min(tree: &mut NodeRef) -> Option<i64> {
-    //     let mut current = tree;
+    fn new_with_parent(value: i64, parent: *mut Self) -> *mut Self {
+        Box::into_raw(Box::new(Self {
+            left: std::ptr::null_mut(),
+            right: std::ptr::null_mut(),
+            parent,
+            value,
+            min: value,
+            max: value,
+            sum: value,
+            count: 1,
+            flip: false,
+        }))
+    }
 
-    //     while let Some(node) = current {
-    //         current = match node.left {
-    //             Some(_) => &mut current.as_mut()?.left,
-    //             None => break,
-    //         }
-    //     }
+    unsafe fn update(&mut self) {
+        self.count = 1;
+        self.min = self.value;
+        self.max = self.value;
+        self.sum = self.value;
 
-    //     let node = current.take()?;
-    //     *current = node.right;
+        if self.left != std::ptr::null_mut() {
+            self.count += (*self.left).count;
+            self.min = self.min.min((*self.left).min);
+            self.max = self.max.max((*self.left).max);
+            self.sum += (*self.left).sum;
+        }
 
-    //     Some(node.value)
-    // }
-
-    // fn remove(tree: &mut NodeRef) -> Option<i64> {
-    //     let mut node = tree.take()?;
-
-    //     *tree = match (node.left.as_ref(), node.right.as_ref()) {
-    //         (None, None) => None,
-    //         (Some(_), None) => node.left.take(),
-    //         (None, Some(_)) => node.right.take(),
-    //         (Some(_), Some(_)) => Some(Box::new(Node {
-    //             value: Self::get_min(&mut node.right)?,
-    //             cnt: 1,
-    //             left: node.left.take(),
-    //             right: node.right.take(),
-    //         })),
-    //     };
-
-    //     Some(node.value)
-    // }
-
-    fn left_rotate(root: &mut NodeRef) {
-        if let Some(mut node) = root.take() {
-            if let Some(mut new_root) = node.right.take() {
-                node.right = new_root.left.take();
-
-                new_root.left = Some(node);
-                Node::update(&mut new_root.left);
-
-                *root = Some(new_root);
-                Node::update(root);
-            }
+        if self.right != std::ptr::null_mut() {
+            self.count += (*self.right).count;
+            self.min = self.min.min((*self.right).min);
+            self.max = self.max.max((*self.right).max);
+            self.sum += (*self.right).sum;
         }
     }
 
-    fn right_rotate(root: &mut NodeRef) {
-        if let Some(mut node) = root.take() {
-            if let Some(mut new_root) = node.left.take() {
-                node.left = new_root.right.take();
-
-                new_root.right = Some(node);
-                Node::update(&mut new_root.right);
-
-                *root = Some(new_root);
-                Node::update(root);
-            }
+    unsafe fn push(&mut self) {
+        if !self.flip {
+            return;
         }
-    }
 
-    fn update(node: &mut NodeRef) {
-        if let Some(mut node) = node.take() {
-            node.cnt = 1;
-            node.min = node.value;
-            node.max = node.value;
-            node.sum = node.value;
+        let temp = (*self).left;
+        (*self).left = (*self).right;
+        (*self).right = temp;
 
-            if let Some(left) = &node.left {
-                node.cnt += left.cnt;
-                node.min = node.min.min(left.min);
-                node.max = node.max.max(left.max);
-                node.sum += left.sum;
-            }
-
-            if let Some(right) = &node.right {
-                node.cnt += right.cnt;
-                node.min = node.min.min(right.min);
-                node.max = node.max.max(right.max);
-                node.sum += right.sum;
-            }
+        if (*self).left != std::ptr::null_mut() {
+            (*(*self).left).flip ^= true;
         }
-    }
 
-    fn push(node: &mut NodeRef) {
-        if let Some(mut node) = node.take() {
-            if !node.is_flipped {
-                return;
-            }
-
-            std::mem::swap(&mut node.left, &mut node.right);
-
-            if let Some(left) = &mut node.left {
-                left.is_flipped ^= true;
-            }
-
-            if let Some(right) = &mut node.right {
-                right.is_flipped ^= true;
-            }
-
-            node.is_flipped = false;
+        if (*self).right != std::ptr::null_mut() {
+            (*(*self).right).flip ^= true;
         }
+
+        self.flip = false;
     }
 }
 
-#[derive(Default)]
-pub struct SplayTree {
-    root: NodeRef,
-    nodes: Vec<NodeRef>,
+struct SplayTree {
+    root: *mut Node,
+    ptr: Vec<*mut Node>,
 }
 
 impl SplayTree {
-    fn init(&mut self, n: i64) {
-        if self.root.is_some() {
-            self.root = None;
+    unsafe fn init(&mut self, n: usize) {
+        if self.root != std::ptr::null_mut() {
+            drop(Box::from_raw(self.root));
         }
 
-        self.root = Some(Box::new(Node {
-            value: i64::MIN,
-            cnt: 1,
-            min: i64::MIN,
-            max: i64::MIN,
-            sum: i64::MIN,
-            is_dummy: false,
-            is_flipped: false,
-            left: None,
-            right: None,
-        }));
-        self.nodes = vec![None; (n + 1) as usize];
+        self.root = Node::new(1_000_000_007);
+        self.ptr = vec![std::ptr::null_mut(); n + 1];
 
-        let mut node = self.root_mut().take().unwrap();
+        let mut node = self.root;
 
         for i in 1..=n {
-            node.right = Some(Box::new(Node {
-                value: i,
-                cnt: 1,
-                min: i,
-                max: i,
-                sum: i,
-                is_dummy: false,
-                is_flipped: false,
-                left: None,
-                right: None,
-            }));
-
-            self.nodes[i as usize] = node.right.take();
-            node = node.right.take().unwrap();
+            (*node).right = Node::new_with_parent(i as i64, node);
+            self.ptr[i] = (*node).right;
+            node = (*node).right;
         }
 
-        node.right = Some(Box::new(Node {
-            value: i64::MAX,
-            cnt: 1,
-            min: i64::MAX,
-            max: i64::MAX,
-            sum: i64::MAX,
-            is_dummy: false,
-            is_flipped: false,
-            left: None,
-            right: None,
-        }));
-
-        self.root_mut().as_mut().unwrap().is_dummy = true;
-        node.right.as_mut().unwrap().is_dummy = true;
+        (*node).right = Node::new_with_parent(1_000_000_007, node);
 
         for i in (1..=n).rev() {
-            Node::update(&mut self.nodes[i as usize]);
+            (*self.ptr[i]).update();
         }
 
-        Self::splay(&mut self.nodes[n as usize / 2], &(n / 2));
+        self.splay(self.ptr[n / 2], std::ptr::null_mut());
     }
 
-    fn root_mut(&mut self) -> &mut NodeRef {
-        &mut self.root
+    unsafe fn get_all(&mut self, vals: &mut Vec<i64>, node: *mut Node) {
+        (*node).push();
+
+        if (*node).left != std::ptr::null_mut() {
+            self.get_all(vals, (*node).left);
+        }
+
+        if (*node).value.abs() != 1_000_000_007 {
+            vals.push((*node).value);
+        }
+
+        if (*node).right != std::ptr::null_mut() {
+            self.get_all(vals, (*node).right);
+        }
     }
 
-    fn root(&self) -> &NodeRef {
-        &self.root
+    unsafe fn gather(&mut self, left: i64, right: i64) -> *mut Node {
+        self.kth(right + 1);
+
+        let node = self.root;
+
+        self.kth(left - 1);
+        self.splay(node, self.root);
+
+        (*(*self.root).right).left
     }
 
-    // fn insert(&mut self, value: i64) {
-    //     Self::splay(self.root_mut(), &value);
+    unsafe fn rotate(&mut self, node: *mut Node) {
+        let parent = (*node).parent;
+        let child;
 
-    //     let root = self.root_mut().take();
+        if parent == std::ptr::null_mut() {
+            return;
+        }
 
-    //     *self.root_mut() = match root {
-    //         Some(mut node) => match node.value.cmp(&value) {
-    //             Ordering::Equal => Some(node),
-    //             Ordering::Less => Some(Box::new(Node {
-    //                 value,
-    //                 cnt: 1,
-    //                 right: node.right.take(),
-    //                 left: Some(node),
-    //             })),
-    //             Ordering::Greater => Some(Box::new(Node {
-    //                 value,
-    //                 cnt: 1,
-    //                 left: node.left.take(),
-    //                 right: Some(node),
-    //             })),
-    //         },
-    //         None => Node::new_node_ref(value),
-    //     }
-    // }
+        if node == (*parent).left {
+            child = (*node).right;
+            (*parent).left = child;
+            (*node).right = parent;
+        } else {
+            child = (*node).left;
+            (*parent).right = child;
+            (*node).left = parent;
+        }
 
-    // fn remove(&mut self, value: &i64) -> Option<i64> {
-    //     Self::splay(self.root_mut(), value);
+        (*node).parent = (*parent).parent;
+        (*parent).parent = node;
 
-    //     let node = self.root_mut().as_mut()?;
+        if child != std::ptr::null_mut() {
+            (*child).parent = parent;
+        }
 
-    //     match node.value.cmp(value) {
-    //         Ordering::Equal => Node::remove(self.root_mut()),
-    //         _ => None,
-    //     }
-    // }
+        if (*node).parent != std::ptr::null_mut() {
+            if (*(*node).parent).left == parent {
+                (*(*node).parent).left = node;
+            } else {
+                (*(*node).parent).right = node;
+            }
+        } else {
+            self.root = node;
+        }
 
-    // fn find(&mut self, value: &i64) -> bool {
-    //     Self::splay(self.root_mut(), value);
+        (*parent).update();
+        (*node).update();
+    }
 
-    //     self.root()
-    //         .as_ref()
-    //         .map_or(false, |node| &node.value == value)
-    // }
+    unsafe fn splay(&mut self, node: *mut Node, grandparent: *mut Node) {
+        while (*node).parent != grandparent {
+            let parent = (*node).parent;
 
-    fn kth(&mut self, mut k: usize) {
-        let mut node = self.root_mut().take();
-        Node::push(&mut node);
+            if (*parent).parent != grandparent {
+                (*(*parent).parent).push();
+            }
+
+            (*parent).push();
+            (*node).push();
+
+            if (*parent).parent == grandparent {
+                self.rotate(node);
+                continue;
+            }
+
+            let parent_of_parent = (*parent).parent;
+
+            if ((*parent).left == node) == ((*parent_of_parent).left == parent) {
+                self.rotate(parent);
+                self.rotate(node);
+            } else {
+                self.rotate(node);
+                self.rotate(node);
+            }
+        }
+
+        (*node).push();
+
+        if grandparent == std::ptr::null_mut() {
+            self.root = node;
+        }
+    }
+
+    unsafe fn _insert(&mut self, value: i64) {
+        let mut node = self.root;
+        let parent: *mut *mut Node;
+
+        if node == std::ptr::null_mut() {
+            let node = Node::new(value);
+            self.root = node;
+
+            return;
+        }
 
         loop {
-            if let Some(node) = node {
-                while let Some(left) = &node.left {
-                    if left.cnt > k {
-                        node = node.left.take().unwrap();
-                    } else {
-                        break;
-                    }
-                }
+            if value == (*node).value {
+                return;
+            }
 
-                if let Some(left) = &node.left {
-                    k -= left.cnt;
-                }
-
-                k -= 1;
-
-                if k == 0 {
+            if value < (*node).value {
+                if (*node).left == std::ptr::null_mut() {
+                    parent = &mut (*node).left;
                     break;
                 }
 
-                node = node.right.take().unwrap();
-            }
-        }
-
-        Self::splay(&mut node, &node.unwrap().value);
-    }
-
-    fn get_idx(&mut self, idx: usize) -> i64 {
-        Self::splay(&mut self.nodes[idx], &self.nodes[idx].unwrap().value);
-
-        self.root().unwrap().left.unwrap().value
-    }
-
-    fn gather(&mut self, left: usize, right: usize) -> NodeRef {
-        self.kth(right + 1);
-
-        let tmp = self.root_mut().take();
-
-        self.kth(left - 1);
-    }
-
-    fn print(tree: &mut NodeRef, out: &mut BufWriter<StdoutLock>) {
-        Node::push(tree);
-
-        if let Some(node) = tree {
-            Self::print(&mut node.left, out);
-
-            if !node.is_dummy {
-                writeln!(out, "{} ", node.value).unwrap();
-            }
-
-            Self::print(&mut node.right, out);
-        }
-    }
-
-    fn splay(tree: &mut NodeRef, value: &i64) {
-        if let Some(grandparent) = tree.as_mut() {
-            match grandparent.value.cmp(value) {
-                Ordering::Greater => Self::splay_left(tree, value),
-                Ordering::Less => Self::splay_right(tree, value),
-                Ordering::Equal => (),
-            }
-        }
-    }
-
-    fn splay_left(tree: &mut NodeRef, value: &i64) {
-        let grandparent = tree.as_mut().unwrap();
-
-        if let Some(parent) = grandparent.left.as_mut() {
-            match parent.value.cmp(value) {
-                Ordering::Greater => {
-                    Self::splay(&mut parent.left, value);
-                    Node::right_rotate(tree);
+                node = (*node).left;
+            } else {
+                if (*node).right == std::ptr::null_mut() {
+                    parent = &mut (*node).right;
+                    break;
                 }
-                Ordering::Less => {
-                    Self::splay(&mut parent.right, value);
-                    Node::left_rotate(tree);
-                }
-                Ordering::Equal => (),
+
+                node = (*node).right;
+            }
+        }
+
+        let node_new = Node::new(value);
+        (*node_new).parent = node;
+        *parent = node;
+
+        self.splay(node_new, std::ptr::null_mut());
+    }
+
+    unsafe fn _find(&mut self, value: i64) -> bool {
+        let mut node = self.root;
+
+        if node == std::ptr::null_mut() {
+            return false;
+        }
+
+        while node != std::ptr::null_mut() {
+            if value == (*node).value {
+                break;
             }
 
-            Node::right_rotate(tree);
+            if value < (*node).value {
+                if (*node).left == std::ptr::null_mut() {
+                    break;
+                }
+
+                node = (*node).left;
+            } else {
+                if (*node).right == std::ptr::null_mut() {
+                    break;
+                }
+
+                node = (*node).right;
+            }
+        }
+
+        self.splay(node, std::ptr::null_mut());
+
+        (*node).value == value
+    }
+
+    unsafe fn _delete(&mut self, value: i64) {
+        if !self._find(value) {
+            return;
+        }
+
+        let node = self.root;
+
+        if (*node).left != std::ptr::null_mut() && (*node).right != std::ptr::null_mut() {
+            self.root = (*node).left;
+            (*self.root).parent = std::ptr::null_mut();
+
+            let mut node_new = self.root;
+
+            while (*node_new).right != std::ptr::null_mut() {
+                node_new = (*node_new).right;
+            }
+
+            (*node_new).right = (*node).right;
+            (*(*node).right).parent = node_new;
+
+            drop(Box::from_raw(node));
+            return;
+        }
+
+        if (*node).left != std::ptr::null_mut() {
+            self.root = (*node).left;
+            (*self.root).parent = std::ptr::null_mut();
+
+            drop(Box::from_raw(node));
+            return;
+        }
+
+        if (*node).right != std::ptr::null_mut() {
+            self.root = (*node).right;
+            (*self.root).parent = std::ptr::null_mut();
+
+            drop(Box::from_raw(node));
+            return;
+        }
+
+        self.root = std::ptr::null_mut();
+        drop(Box::from_raw(node));
+    }
+
+    unsafe fn kth(&mut self, mut k: i64) {
+        let mut node = self.root;
+        (*node).push();
+
+        loop {
+            while (*node).left != std::ptr::null_mut() && (*(*node).left).count > k {
+                node = (*node).left;
+                (*node).push();
+            }
+
+            if (*node).left != std::ptr::null_mut() {
+                k -= (*(*node).left).count;
+            }
+
+            if k == 0 {
+                break;
+            }
+
+            k -= 1;
+            node = (*node).right;
+            (*node).push();
+        }
+
+        self.splay(node, std::ptr::null_mut());
+    }
+
+    unsafe fn flip(&mut self, left: i64, right: i64) {
+        let node = self.gather(left, right);
+        (*node).flip ^= true;
+    }
+
+    unsafe fn shift(&mut self, left: i64, right: i64, mut index: i64) {
+        self.gather(left, right);
+        index %= right - left + 1;
+
+        if index < 0 {
+            index += right - left + 1;
+        }
+
+        if index > 0 {
+            self.flip(left, right);
+            self.flip(left, left + index - 1);
+            self.flip(left + index, right);
         }
     }
 
-    fn splay_right(tree: &mut NodeRef, value: &i64) {
-        let grandparent = tree.as_mut().unwrap();
-
-        if let Some(parent) = grandparent.right.as_mut() {
-            match parent.value.cmp(value) {
-                Ordering::Greater => {
-                    Self::splay(&mut parent.left, value);
-                    Node::right_rotate(tree);
-                }
-                Ordering::Less => {
-                    Self::splay(&mut parent.right, value);
-                    Node::left_rotate(tree);
-                }
-                Ordering::Equal => (),
-            }
-
-            Node::left_rotate(tree);
-        }
+    unsafe fn get_index(&mut self, index: usize) {
+        self.splay(self.ptr[index], std::ptr::null_mut());
     }
 }
 
+// Reference: https://justicehui.github.io/hard-algorithm/2018/11/12/SplayTree1/
+// Reference: https://justicehui.github.io/hard-algorithm/2018/11/13/SplayTree2/
+// Reference: https://justicehui.github.io/hard-algorithm/2019/10/22/SplayTree3/
+// Reference: https://justicehui.github.io/hard-algorithm/2019/10/23/SplayTree4/
 fn main() {
     let (stdin, stdout) = (io::stdin(), io::stdout());
     let mut scan = UnsafeScanner::new(stdin.lock());
     let mut out = io::BufWriter::new(stdout.lock());
 
-    let (n, q) = (scan.token::<i64>(), scan.token::<i64>());
+    let (n, q) = (scan.token::<usize>(), scan.token::<i64>());
+    let mut tree = SplayTree {
+        root: Node::new(0),
+        ptr: Vec::new(),
+    };
 
-    let mut tree = SplayTree::default();
-    tree.init(n);
+    unsafe {
+        tree.init(n);
 
-    for _ in 0..q {
-        let op = scan.token::<i64>();
+        for _ in 0..q {
+            let command = scan.token::<i64>();
 
-        match op {
-            1 => {
-                let (l, r) = (scan.token::<usize>(), scan.token::<usize>());
+            if command == 1 {
+                let (l, r) = (scan.token::<i64>(), scan.token::<i64>());
                 tree.flip(l, r);
 
-                let node = tree.gather(l, r);
-                writeln!(out, "{} {} {}", node.min, node.max, node.sum);
-            }
-            2 => {
+                let val = tree.gather(l, r);
+                writeln!(out, "{} {} {}", (*val).min, (*val).max, (*val).sum).unwrap();
+            } else if command == 2 {
                 let (l, r, x) = (
-                    scan.token::<usize>(),
-                    scan.token::<usize>(),
+                    scan.token::<i64>(),
+                    scan.token::<i64>(),
                     scan.token::<i64>(),
                 );
-                let node = tree.gather(l, r);
 
-                writeln!(out, "{} {} {}", node.min, node.max, node.sum);
+                let val = tree.gather(l, r);
+                writeln!(out, "{} {} {}", (*val).min, (*val).max, (*val).sum).unwrap();
 
                 tree.shift(l, r, x);
-            }
-            3 => {
-                let i = scan.token::<usize>();
+            } else if command == 3 {
+                let i = scan.token::<i64>();
                 tree.kth(i);
 
-                writeln!(out, "{}", tree.root().as_ref().unwrap().value).unwrap();
-            }
-            4 => {
+                writeln!(out, "{}", (*tree.root).value).unwrap();
+            } else {
                 let x = scan.token::<usize>();
+                tree.get_index(x);
 
-                writeln!(out, "{}", tree.get_idx(x)).unwrap();
+                writeln!(out, "{}", (*(*tree.root).left).count).unwrap();
             }
-            _ => (),
         }
-    }
 
-    SplayTree::print(&mut tree.root(), &mut out);
+        let mut ret = Vec::new();
+        tree.get_all(&mut ret, tree.root);
+
+        for val in ret {
+            write!(out, "{} ", val).unwrap();
+        }
+
+        writeln!(out).unwrap();
+    }
 }

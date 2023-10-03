@@ -1,5 +1,5 @@
 use io::Write;
-use std::{cmp, io, str};
+use std::{io, str};
 
 pub struct UnsafeScanner<R> {
     reader: R,
@@ -33,266 +33,343 @@ impl<R: io::BufRead> UnsafeScanner<R> {
     }
 }
 
-fn compare<T: PartialOrd>(a: &T, b: &T) -> i32 {
-    match a.partial_cmp(b).unwrap() {
-        cmp::Ordering::Greater => 1,
-        cmp::Ordering::Less => -1,
-        _ => 0,
+struct LazyNode {
+    max: i64,
+    max_left: i64,
+    max_right: i64,
+}
+
+impl LazyNode {
+    fn new(max: i64, max_left: i64, max_right: i64) -> Self {
+        Self {
+            max,
+            max_left,
+            max_right,
+        }
     }
 }
 
-pub type NodeCell<K, V> = Option<Box<Node<K, V>>>;
-
-pub struct Node<K, V> {
-    left: NodeCell<K, V>,
-    right: NodeCell<K, V>,
-    key: K,
-    val: V,
+struct Node {
+    left: *mut Node,
+    right: *mut Node,
+    parent: *mut Node,
+    value: i64,
+    count: i64,
+    lazy: LazyNode,
+    flip: bool,
 }
 
-impl<K: PartialOrd, V> Node<K, V> {
-    fn new(key: K, val: V) -> Node<K, V> {
-        Node {
-            left: None,
-            right: None,
-            key: key,
-            val: val,
-        }
+impl Node {
+    fn new(value: i64) -> *mut Self {
+        Box::into_raw(Box::new(Self {
+            left: std::ptr::null_mut(),
+            right: std::ptr::null_mut(),
+            parent: std::ptr::null_mut(),
+            value,
+            count: 1,
+            lazy: LazyNode::new(value, value, value),
+            flip: false,
+        }))
     }
 
-    fn height(x: Option<&Box<Node<K, V>>>) -> usize {
-        if let Some(node) = x {
-            let lh = Node::height(node.left.as_ref());
-            let rh = Node::height(node.left.as_ref());
-            if lh <= rh {
-                rh + 1
+    fn new_with_parent(value: i64, parent: *mut Self) -> *mut Self {
+        Box::into_raw(Box::new(Self {
+            left: std::ptr::null_mut(),
+            right: std::ptr::null_mut(),
+            parent,
+            value,
+            count: 1,
+            lazy: LazyNode::new(value, value, value),
+            flip: false,
+        }))
+    }
+
+    unsafe fn update(&mut self) {
+        self.push();
+
+        self.count = 1;
+        self.lazy.max = self.value;
+        self.lazy.max_left = self.value;
+        self.lazy.max_right = self.value;
+
+        if self.left != std::ptr::null_mut() && self.right != std::ptr::null_mut() {
+            (*self.left).push();
+            (*self.right).push();
+
+            self.count += (*self.left).count + (*self.right).count;
+            self.lazy.max_left = (*self.left).lazy.max_left
+                + if (*self.left).count == (*self.left).lazy.max_left && self.value == 1 {
+                    1 + (*self.right).lazy.max_left
+                } else {
+                    0
+                };
+            self.lazy.max_right = (*self.right).lazy.max_right
+                + if (*self.right).count == (*self.right).lazy.max_right && self.value == 1 {
+                    1 + (*self.left).lazy.max_right
+                } else {
+                    0
+                };
+            self.lazy.max =
+                (*self.left)
+                    .lazy
+                    .max
+                    .max((*self.right).lazy.max)
+                    .max(if self.value == 1 {
+                        (*self.left).lazy.max_right + 1 + (*self.right).lazy.max_left
+                    } else {
+                        0
+                    });
+        } else if self.left != std::ptr::null_mut() {
+            (*self.left).push();
+
+            self.count += (*self.left).count;
+            self.lazy.max_left = (*self.left).lazy.max_left
+                + if (*self.left).count == (*self.left).lazy.max_left {
+                    self.value
+                } else {
+                    0
+                };
+            self.lazy.max_right = if self.value == 1 {
+                1 + (*self.left).lazy.max_right
             } else {
-                lh + 1
-            }
-        } else {
-            0
-        }
-    }
-
-    fn size(x: Option<&Box<Node<K, V>>>) -> usize {
-        if let Some(node) = x {
-            1 + Node::size(node.left.as_ref()) + Node::size(node.right.as_ref())
-        } else {
-            0
-        }
-    }
-
-    fn splay(mut h: NodeCell<K, V>, key: &K) -> NodeCell<K, V> {
-        if h.is_none() {
-            return None;
-        }
-        let cmp1 = h.as_ref().map(|n| compare(key, &n.key)).unwrap();
-
-        if cmp1 < 0 {
-            // key not in tree, done
-            if h.as_ref().unwrap().left.is_none() {
-                return h;
-            }
-            let cmp2 = compare(key, &h.as_ref().unwrap().left.as_ref().unwrap().key);
-            if cmp2 < 0 {
-                h.as_mut().map(|n| {
-                    n.left.as_mut().map(|n| {
-                        n.left = Node::splay(n.left.take(), key);
-                    })
-                });
-                h = Node::rotate_right(h);
-            } else if cmp2 > 0 {
-                if let Some(ref mut n) = h.as_mut() {
-                    if n.left.as_mut().map_or(false, |n| {
-                        n.right = Node::splay(n.right.take(), key);
-                        n.right.is_some()
-                    }) {
-                        n.left = Node::rotate_left(n.left.take());
-                    }
-                }
-            }
-            // key not in tree
-            if h.as_ref().unwrap().left.is_none() {
-                return h;
+                0
+            };
+            self.lazy.max = (*self.left).lazy.max.max(if self.value == 1 {
+                1 + (*self.left).lazy.max_right
             } else {
-                return Node::rotate_right(h);
-            }
-        } else if cmp1 > 0 {
-            // key not in tree, done
-            if h.as_ref().unwrap().right.is_none() {
-                return h;
-            }
-            let cmp2 = compare(key, &h.as_ref().unwrap().right.as_ref().unwrap().key);
-            if cmp2 < 0 {
-                h.as_mut().map(|n| {
-                    if n.right.as_mut().map_or(false, |n| {
-                        n.left = Node::splay(n.left.take(), key);
-                        n.left.is_some()
-                    }) {
-                        n.right = Node::rotate_right(n.right.take());
-                    }
-                });
-            } else if cmp2 > 0 {
-                h.as_mut().map(|n| {
-                    n.right.as_mut().map(|n| {
-                        n.right = Node::splay(n.right.take(), key);
-                    })
-                });
-                h = Node::rotate_left(h);
-            }
-            // key not in tree
-            if h.as_ref().unwrap().right.is_none() {
-                return h;
+                0
+            });
+        } else if self.right != std::ptr::null_mut() {
+            (*self.right).push();
+
+            self.count += (*self.right).count;
+            self.lazy.max_left = if self.value == 1 {
+                1 + (*self.right).lazy.max_left
             } else {
-                return Node::rotate_left(h);
-            }
+                0
+            };
+            self.lazy.max_right = (*self.right).lazy.max_right
+                + if (*self.right).count == (*self.right).lazy.max_right {
+                    self.value
+                } else {
+                    0
+                };
+            self.lazy.max = (*self.right).lazy.max.max(if self.value == 1 {
+                1 + (*self.right).lazy.max_left
+            } else {
+                0
+            });
         }
-        h
     }
 
-    fn rotate_right(mut h: NodeCell<K, V>) -> NodeCell<K, V> {
-        let mut x = h.as_mut().map_or(None, |n| n.left.take());
-        h.as_mut()
-            .map(|n| n.left = x.as_mut().map_or(None, |n| n.right.take()));
-        x.as_mut().map(|n| n.right = h);
-        x
-    }
+    unsafe fn push(&mut self) {
+        if self.flip {
+            let temp = (*self).left;
+            (*self).left = (*self).right;
+            (*self).right = temp;
 
-    fn rotate_left(mut h: NodeCell<K, V>) -> NodeCell<K, V> {
-        let mut x = h.as_mut().map_or(None, |n| n.right.take());
-        h.as_mut()
-            .map(|n| n.right = x.as_mut().map_or(None, |n| n.left.take()));
-        x.as_mut().map(|n| n.left = h);
-        x
+            let temp = (*self).lazy.max_left;
+            (*self).lazy.max_left = (*self).lazy.max_right;
+            (*self).lazy.max_right = temp;
+
+            if (*self).left != std::ptr::null_mut() {
+                (*(*self).left).flip ^= true;
+            }
+
+            if (*self).right != std::ptr::null_mut() {
+                (*(*self).right).flip ^= true;
+            }
+
+            self.flip = false;
+        }
     }
 }
 
-/// Splay tree. Supports splay-insert, -search, and -delete.
-pub struct SplayTree<K, V> {
-    root: NodeCell<K, V>,
-    // size: usize
+struct SplayTree {
+    root: *mut Node,
+    ptr: Vec<*mut Node>,
 }
 
-impl<K: PartialOrd, V> SplayTree<K, V> {
-    pub fn new() -> SplayTree<K, V> {
-        SplayTree {
-            root: None,
-            // size: 0
+impl SplayTree {
+    unsafe fn init_with_nums(&mut self, n: usize, nums: Vec<i64>) {
+        if self.root != std::ptr::null_mut() {
+            drop(Box::from_raw(self.root));
         }
+
+        self.root = Node::new(1_000_000_007);
+        self.ptr = vec![std::ptr::null_mut(); n + 1];
+
+        let mut node = self.root;
+
+        for i in 1..=n {
+            (*node).right = Node::new_with_parent(nums[i - 1], node);
+            self.ptr[i] = (*node).right;
+            node = (*node).right;
+        }
+
+        (*node).right = Node::new_with_parent(1_000_000_007, node);
+
+        for i in (1..=n).rev() {
+            (*self.ptr[i]).update();
+        }
+
+        self.splay(self.ptr[(n / 2).max(1)], std::ptr::null_mut());
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.root.is_none()
+    unsafe fn gather(&mut self, left: i64, right: i64) -> *mut Node {
+        self.kth(right + 1);
+
+        let node = self.root;
+
+        self.kth(left - 1);
+        self.splay(node, self.root);
+
+        (*(*self.root).right).left
     }
 
-    pub fn size(&self) -> usize {
-        Node::size(self.root.as_ref())
-    }
+    unsafe fn rotate(&mut self, node: *mut Node) {
+        let parent = (*node).parent;
+        let child;
 
-    pub fn height(&self) -> usize {
-        Node::height(self.root.as_ref())
-    }
-
-    pub fn clear(&mut self) {
-        self.root = None;
-    }
-
-    // get() needs to update tree structure
-    pub fn get(&mut self, key: &K) -> Option<&V> {
-        self.root = Node::splay(self.root.take(), key);
-        self.root
-            .as_ref()
-            .map_or(None, |n| if n.key == *key { Some(&n.val) } else { None })
-    }
-
-    pub fn contains_key(&mut self, key: &K) -> bool {
-        self.get(key).is_some()
-    }
-
-    pub fn get_mut<'t>(&'t mut self, key: &K) -> Option<&'t mut V> {
-        self.root = Node::splay(self.root.take(), key);
-        self.root.as_mut().map_or(None, |n| {
-            if n.key == *key {
-                Some(&mut n.val)
-            } else {
-                None
-            }
-        })
-    }
-
-    /// Splay tree insertion.
-    pub fn insert(&mut self, key: K, val: V) {
-        if self.root.is_none() {
-            self.root = Some(Box::new(Node::new(key, val)));
+        if parent == std::ptr::null_mut() {
             return;
         }
 
-        let mut root = Node::splay(self.root.take(), &key);
-
-        let cmp = compare(&key, &root.as_ref().unwrap().key);
-        if cmp < 0 {
-            let mut n = Node::new(key, val);
-            n.left = root.as_mut().unwrap().left.take();
-            n.right = root;
-            self.root = Some(Box::new(n));
-        } else if cmp > 0 {
-            let mut n = Node::new(key, val);
-            n.right = root.as_mut().unwrap().right.take();
-            n.left = root;
-            self.root = Some(Box::new(n));
-        } else if cmp == 0 {
-            root.as_mut().map(|n| n.val = val);
-            self.root = root;
+        if node == (*parent).left {
+            child = (*node).right;
+            (*parent).left = child;
+            (*node).right = parent;
         } else {
-            unreachable!();
+            child = (*node).left;
+            (*parent).right = child;
+            (*node).left = parent;
+        }
+
+        (*node).parent = (*parent).parent;
+        (*parent).parent = node;
+
+        if child != std::ptr::null_mut() {
+            (*child).parent = parent;
+        }
+
+        if (*node).parent != std::ptr::null_mut() {
+            if (*(*node).parent).left == parent {
+                (*(*node).parent).left = node;
+            } else {
+                (*(*node).parent).right = node;
+            }
+        } else {
+            self.root = node;
+        }
+
+        (*parent).update();
+        (*node).update();
+    }
+
+    unsafe fn splay(&mut self, node: *mut Node, grandparent: *mut Node) {
+        while (*node).parent != grandparent {
+            let parent = (*node).parent;
+
+            if (*parent).parent != grandparent {
+                (*(*parent).parent).push();
+            }
+
+            (*parent).push();
+            (*node).push();
+
+            if (*parent).parent == grandparent {
+                self.rotate(node);
+                continue;
+            }
+
+            let parent_of_parent = (*parent).parent;
+
+            if ((*parent).left == node) == ((*parent_of_parent).left == parent) {
+                self.rotate(parent);
+                self.rotate(node);
+            } else {
+                self.rotate(node);
+                self.rotate(node);
+            }
+        }
+
+        (*node).push();
+
+        if grandparent == std::ptr::null_mut() {
+            self.root = node;
         }
     }
 
-    /// Splay tree deletion.
-    // use Algs4 approach
-    pub fn remove(&mut self, key: &K) -> Option<V> {
-        if self.root.is_none() {
-            return None;
-        }
+    unsafe fn kth(&mut self, mut k: i64) {
+        let mut node = self.root;
+        (*node).push();
 
-        let mut root = Node::splay(self.root.take(), key);
-
-        if *key == root.as_ref().unwrap().key {
-            if root.as_ref().unwrap().left.is_none() {
-                self.root = root.as_mut().unwrap().right.take();
-            } else {
-                let x = root.as_mut().unwrap().right.take();
-                self.root = Node::splay(root.as_mut().unwrap().left.take(), key);
-                self.root.as_mut().map(|n| n.right = x);
+        loop {
+            while (*node).left != std::ptr::null_mut() && (*(*node).left).count > k {
+                node = (*node).left;
+                (*node).push();
             }
-            root.map(|n| n.val)
-        } else {
-            None
+
+            if (*node).left != std::ptr::null_mut() {
+                k -= (*(*node).left).count;
+            }
+
+            if k == 0 {
+                break;
+            }
+
+            k -= 1;
+            node = (*node).right;
+            (*node).push();
         }
+
+        self.splay(node, std::ptr::null_mut());
+    }
+
+    unsafe fn flip(&mut self, left: i64, right: i64) {
+        let node = self.gather(left, right);
+        (*node).flip ^= true;
     }
 }
 
-// Reference: https://snippets.kiwiyou.dev/splay-tree
+// Reference: https://justicehui.github.io/hard-algorithm/2018/11/12/SplayTree1/
+// Reference: https://justicehui.github.io/hard-algorithm/2018/11/13/SplayTree2/
+// Reference: https://justicehui.github.io/hard-algorithm/2019/10/22/SplayTree3/
+// Reference: https://justicehui.github.io/hard-algorithm/2019/10/23/SplayTree4/
 fn main() {
     let (stdin, stdout) = (io::stdin(), io::stdout());
     let mut scan = UnsafeScanner::new(stdin.lock());
     let mut out = io::BufWriter::new(stdout.lock());
 
-    let n = scan.token::<i64>();
-    let mut splay_tree = SplayTree::new();
+    let n = scan.token::<usize>();
+    let mut tree = SplayTree {
+        root: Node::new(0),
+        ptr: Vec::new(),
+    };
 
-    for _ in 0..n {
-        let val = scan.token::<i64>();
-        splay_tree.insert(val, val);
-    }
+    unsafe {
+        let mut nums = vec![0; n];
 
-    let m = scan.token::<i64>();
+        for i in 0..n {
+            nums[i] = scan.token::<i64>();
+        }
 
-    for _ in 0..m {
-        let command = scan.token::<i64>();
+        tree.init_with_nums(n, nums);
 
-        if command == 1 {
-        } else {
+        let q = scan.token::<i64>();
+
+        for _ in 0..q {
+            let command = scan.token::<i64>();
+
+            if command == 1 {
+                let (l, r) = (scan.token::<i64>(), scan.token::<i64>());
+                tree.flip(l, r);
+            } else {
+                let (l, r) = (scan.token::<i64>(), scan.token::<i64>());
+                let ret = tree.gather(l, r);
+
+                writeln!(out, "{}", (*ret).lazy.max).unwrap();
+            }
         }
     }
 }

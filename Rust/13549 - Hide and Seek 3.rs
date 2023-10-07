@@ -1,54 +1,71 @@
-use std::{collections::VecDeque, io};
+use io::Write;
+use std::{collections::VecDeque, io, str};
 
-fn input_integers() -> Vec<i64> {
-    let mut s = String::new();
-
-    io::stdin().read_line(&mut s).unwrap();
-
-    let values: Vec<i64> = s
-        .as_mut_str()
-        .split_whitespace()
-        .map(|s| s.parse().unwrap())
-        .collect();
-
-    values
+pub struct UnsafeScanner<R> {
+    reader: R,
+    buf_str: Vec<u8>,
+    buf_iter: str::SplitAsciiWhitespace<'static>,
 }
 
-fn process_bfs(points: &mut Vec<i64>, n: usize, k: usize) {
-    let mut queue = VecDeque::new();
-    queue.push_back(n);
-
-    points[n] = 0;
-
-    while !queue.is_empty() {
-        let cur_n = queue.pop_back().unwrap();
-
-        if cur_n == k {
-            break;
+impl<R: io::BufRead> UnsafeScanner<R> {
+    pub fn new(reader: R) -> Self {
+        Self {
+            reader,
+            buf_str: vec![],
+            buf_iter: "".split_ascii_whitespace(),
         }
+    }
 
-        if cur_n * 2 <= 100_000 && points[cur_n * 2] < 0 {
-            queue.push_back(cur_n * 2);
-            points[cur_n * 2] = points[cur_n];
-        }
-        if cur_n as i64 - 1 >= 0 && points[cur_n - 1] < 0 {
-            queue.push_front(cur_n - 1);
-            points[cur_n - 1] = points[cur_n] + 1;
-        }
-        if cur_n + 1 <= 100_000 && points[cur_n + 1] < 0 {
-            queue.push_front(cur_n + 1);
-            points[cur_n + 1] = points[cur_n] + 1;
+    pub fn token<T: str::FromStr>(&mut self) -> T {
+        loop {
+            if let Some(token) = self.buf_iter.next() {
+                return token.parse().ok().expect("Failed parse");
+            }
+            self.buf_str.clear();
+            self.reader
+                .read_until(b'\n', &mut self.buf_str)
+                .expect("Failed read");
+            self.buf_iter = unsafe {
+                let slice = str::from_utf8_unchecked(&self.buf_str);
+                std::mem::transmute(slice.split_ascii_whitespace())
+            }
         }
     }
 }
 
 fn main() {
-    let nums = input_integers();
-    let (n, k) = (nums[0] as usize, nums[1] as usize);
+    let (stdin, stdout) = (io::stdin(), io::stdout());
+    let mut scan = UnsafeScanner::new(stdin.lock());
+    let mut out = io::BufWriter::new(stdout.lock());
 
-    let mut points = vec![-1; 100_001];
+    let (n, k) = (scan.token::<usize>(), scan.token::<usize>());
+    let mut positions = vec![-1; 100001];
 
-    process_bfs(&mut points, n, k);
+    let mut queue = VecDeque::new();
+    queue.push_back(n);
 
-    println!("{}", points[k]);
+    positions[n] = 0;
+
+    while !queue.is_empty() {
+        let curr = queue.pop_back().unwrap();
+
+        if curr == k {
+            break;
+        }
+
+        if curr * 2 <= 100_000 && positions[curr * 2] < 0 {
+            queue.push_back(curr * 2);
+            positions[curr * 2] = positions[curr];
+        }
+        if curr as i64 - 1 >= 0 && positions[curr - 1] < 0 {
+            queue.push_front(curr - 1);
+            positions[curr - 1] = positions[curr] + 1;
+        }
+        if curr + 1 <= 100_000 && positions[curr + 1] < 0 {
+            queue.push_front(curr + 1);
+            positions[curr + 1] = positions[curr] + 1;
+        }
+    }
+
+    writeln!(out, "{}", positions[k]).unwrap();
 }

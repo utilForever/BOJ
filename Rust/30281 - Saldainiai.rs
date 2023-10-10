@@ -1,5 +1,5 @@
 use io::Write;
-use std::{io, str};
+use std::{io, str, vec};
 
 pub struct UnsafeScanner<R> {
     reader: R,
@@ -39,36 +39,22 @@ fn main() {
     let mut out = io::BufWriter::new(stdout.lock());
 
     let n = scan.token::<usize>();
-    let mut candies_even = Vec::new();
-    let mut candies_odd = Vec::new();
+    let mut candies = vec![0; n];
 
-    for _ in 0..n {
-        let candy = scan.token::<i64>();
+    for i in 0..n {
+        candies[i] = scan.token::<i64>();
+    }
 
-        if candy % 2 == 0 {
-            candies_even.push(candy);
+    let sum = candies.iter().sum::<i64>();
+
+    writeln!(
+        out,
+        "{}",
+        if sum % 2 == 0 {
+            sum / 2
         } else {
-            candies_odd.push(candy);
+            (sum - candies.iter().filter(|&x| x % 2 == 1).min().unwrap()) / 2
         }
-    }
-
-    candies_odd.sort();
-
-    if candies_even.is_empty() && candies_odd.len() == 1 {
-        writeln!(out, "0").unwrap();
-    } else if candies_odd.len() % 2 == 1 {
-        writeln!(
-            out,
-            "{}",
-            (candies_even.iter().sum::<i64>() + candies_odd.iter().skip(1).sum::<i64>()) / 2
-        )
-        .unwrap();
-    } else {
-        writeln!(
-            out,
-            "{}",
-            (candies_even.iter().sum::<i64>() + candies_odd.iter().sum::<i64>()) / 2
-        )
-        .unwrap();
-    }
+    )
+    .unwrap();
 }

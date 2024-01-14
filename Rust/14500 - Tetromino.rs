@@ -1,17 +1,36 @@
-use std::io;
+use io::Write;
+use std::{io, str};
 
-fn input_integers() -> Vec<i32> {
-    let mut s = String::new();
+pub struct UnsafeScanner<R> {
+    reader: R,
+    buf_str: Vec<u8>,
+    buf_iter: str::SplitAsciiWhitespace<'static>,
+}
 
-    io::stdin().read_line(&mut s).unwrap();
+impl<R: io::BufRead> UnsafeScanner<R> {
+    pub fn new(reader: R) -> Self {
+        Self {
+            reader,
+            buf_str: vec![],
+            buf_iter: "".split_ascii_whitespace(),
+        }
+    }
 
-    let values: Vec<i32> = s
-        .as_mut_str()
-        .split_whitespace()
-        .map(|s| s.parse().unwrap())
-        .collect();
-
-    values
+    pub fn token<T: str::FromStr>(&mut self) -> T {
+        loop {
+            if let Some(token) = self.buf_iter.next() {
+                return token.parse().ok().expect("Failed parse");
+            }
+            self.buf_str.clear();
+            self.reader
+                .read_until(b'\n', &mut self.buf_str)
+                .expect("Failed read");
+            self.buf_iter = unsafe {
+                let slice = str::from_utf8_unchecked(&self.buf_str);
+                std::mem::transmute(slice.split_ascii_whitespace())
+            }
+        }
+    }
 }
 
 const BLOCKS: [[[usize; 2]; 4]; 19] = [
@@ -36,46 +55,50 @@ const BLOCKS: [[[usize; 2]; 4]; 19] = [
     [[0, 0], [1, 0], [1, 1], [2, 0]],
 ];
 
-fn get_score(nums: &Vec<Vec<i32>>, x: usize, y: usize, n: usize, m: usize, max_score: &mut i32) {
+fn get_score(nums: &Vec<Vec<i64>>, x: usize, y: usize, n: usize, m: usize) -> i64 {
+    let mut ret = 0;
+
     for i in 0..19 {
-        let mut res = 0;
+        let mut score = 0;
 
         for j in 0..4 {
-            let new_x = x + BLOCKS[i][j][0];
-            let new_y = y + BLOCKS[i][j][1];
+            let x_new = x + BLOCKS[i][j][0];
+            let y_new = y + BLOCKS[i][j][1];
 
-            if new_x < n && new_y < m {
-                res += nums[new_x][new_y];
+            if x_new >= n || y_new >= m {
+                continue;
             }
+
+            score += nums[x_new][y_new];
         }
 
-        if res > *max_score {
-            *max_score = res;
-        }
+        ret = ret.max(score);
     }
+
+    ret
 }
 
 fn main() {
-    let nums = input_integers();
-    let (n, m) = (nums[0] as usize, nums[1] as usize);
+    let (stdin, stdout) = (io::stdin(), io::stdout());
+    let mut scan = UnsafeScanner::new(stdin.lock());
+    let mut out = io::BufWriter::new(stdout.lock());
 
+    let (n, m) = (scan.token::<usize>(), scan.token::<usize>());
     let mut paper = vec![vec![0; m]; n];
 
     for i in 0..n {
-        let nums = input_integers();
-
         for j in 0..m {
-            paper[i][j] = nums[j];
+            paper[i][j] = scan.token::<i64>();
         }
     }
 
-    let mut max_score = 0;
+    let mut ret = 0;
 
     for i in 0..n {
         for j in 0..m {
-            get_score(&paper, i, j, n, m, &mut max_score);
+            ret = ret.max(get_score(&paper, i, j, n, m));
         }
     }
 
-    println!("{}", max_score);
+    writeln!(out, "{ret}").unwrap();
 }

@@ -1,4 +1,5 @@
-use std::io;
+use io::Write;
+use std::{io, str};
 
 static MIN_Y_BOUND: f32 = -13.0;
 static MAX_Y_BOUND: f32 = 13.0;
@@ -12,6 +13,38 @@ static X_COORD: f32 = 0.0;
 static MIN_SLOPE: f32 = (MIN_C - MAX_A) / (X_COORD - START_X);
 static MAX_SLOPE: f32 = (MAX_C - MIN_A) / (X_COORD - START_X);
 static H: f32 = 0.01;
+
+pub struct UnsafeScanner<R> {
+    reader: R,
+    buf_str: Vec<u8>,
+    buf_iter: str::SplitAsciiWhitespace<'static>,
+}
+
+impl<R: io::BufRead> UnsafeScanner<R> {
+    pub fn new(reader: R) -> Self {
+        Self {
+            reader,
+            buf_str: vec![],
+            buf_iter: "".split_ascii_whitespace(),
+        }
+    }
+
+    pub fn token<T: str::FromStr>(&mut self) -> T {
+        loop {
+            if let Some(token) = self.buf_iter.next() {
+                return token.parse().ok().expect("Failed parse");
+            }
+            self.buf_str.clear();
+            self.reader
+                .read_until(b'\n', &mut self.buf_str)
+                .expect("Failed read");
+            self.buf_iter = unsafe {
+                let slice = str::from_utf8_unchecked(&self.buf_str);
+                std::mem::transmute(slice.split_ascii_whitespace())
+            }
+        }
+    }
+}
 
 fn process_binary_search(a: f32, b: f32, islands: &Vec<f32>, mut left: f32, mut right: f32) -> f32 {
     let mut dose = f32::MAX;
@@ -88,50 +121,23 @@ fn calculate_euler_lagrange(islands: &Vec<f32>, x: f32, y: f32, yp: f32) -> f32 
     2.0 * t * (sx * yp - syp * t) / s
 }
 
-fn input_integers() -> Vec<i32> {
-    let mut s = String::new();
-
-    io::stdin().read_line(&mut s).unwrap();
-
-    let values: Vec<i32> = s
-        .as_mut_str()
-        .split_whitespace()
-        .map(|s| s.parse().unwrap())
-        .collect();
-
-    values
-}
-
-fn input_floating_points() -> Vec<f32> {
-    let mut s = String::new();
-
-    io::stdin().read_line(&mut s).unwrap();
-
-    let values: Vec<f32> = s
-        .as_mut_str()
-        .split_whitespace()
-        .map(|s| s.parse().unwrap())
-        .collect();
-
-    values
-}
-
 fn main() {
-    let t = input_integers()[0];
+    let (stdin, stdout) = (io::stdin(), io::stdout());
+    let mut scan = UnsafeScanner::new(stdin.lock());
+    let mut out = io::BufWriter::new(stdout.lock());
 
-    for i in 0..t {
-        let nums = input_floating_points();
+    let t = scan.token::<i64>();
 
-        let n = nums[0] as i32;
-        let a = nums[1];
-        let b = nums[2];
+    for i in 1..=t {
+        let (n, a, b) = (
+            scan.token::<usize>(),
+            scan.token::<f32>(),
+            scan.token::<f32>(),
+        );
+        let mut islands = vec![0.0; n];
 
-        let mut islands = vec![0.0; n as usize];
-
-        let nums = input_floating_points();
-
-        for j in 0..n as usize {
-            islands[j] = nums[j];
+        for j in 0..n {
+            islands[j] = scan.token::<f32>();
         }
 
         let mut slopes = vec![MIN_SLOPE, MAX_SLOPE];
@@ -152,6 +158,6 @@ fn main() {
             }
         }
 
-        println!("Case #{}: {}", i + 1, min_radiation_dose);
+        writeln!(out, "Case #{i}: {min_radiation_dose}").unwrap();
     }
 }

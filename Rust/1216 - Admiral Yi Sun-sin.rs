@@ -199,41 +199,9 @@ impl LinkCutTree {
         }
 
         // Amortized
-        self.splay(node);
-
-        node
-    }
-
-    unsafe fn _get_depth(&mut self, node: *mut Node) -> i64 {
-        // Make chain to root
         self.access(node);
 
-        // node is root
-        if (*node).left == std::ptr::null_mut() {
-            return 0;
-        }
-
-        (*(*node).left).count
-    }
-
-    unsafe fn _get_ancestor(&mut self, mut node: *mut Node, nth: i64) -> *mut Node {
-        let mut nth = self._get_depth(node) - nth;
-
-        loop {
-            let count = (*(*node).left).count;
-
-            if count == nth {
-                self.access(node);
-                return node;
-            }
-
-            if count < nth {
-                nth -= count + 1;
-                node = (*node).right;
-            } else {
-                node = (*node).left;
-            }
-        }
+        node
     }
 
     unsafe fn get_lca(&mut self, x: *mut Node, y: *mut Node) -> *mut Node {
@@ -310,12 +278,6 @@ impl LinkCutTree {
         (*node).update();
     }
 
-    unsafe fn _update_value(&mut self, node: *mut Node, value: i64) {
-        self.access(node);
-        (*node).value = value;
-        (*node).update();
-    }
-
     unsafe fn query_vertex(&mut self, x: *mut Node, y: *mut Node) -> i64 {
         let lca = self.get_lca(x, y);
         let mut ret = (*lca).value;
@@ -344,22 +306,6 @@ impl LinkCutTree {
         self.splay(node);
 
         (*node).flip ^= true;
-    }
-
-    unsafe fn _update_path(&mut self, x: *mut Node, y: *mut Node, _value: i64) {
-        // Original root
-        let root = self.get_root(x);
-
-        // Make x to root, tie with y
-        self.make_root(x);
-        self.access(y);
-
-        // Update value
-        self.splay(x);
-        (*x).push();
-
-        // Revert
-        self.make_root(root);
     }
 }
 

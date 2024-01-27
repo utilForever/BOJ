@@ -164,69 +164,15 @@ impl LinkCutTree {
         }
 
         // Amortized
-        self.splay_to_root(node);
-
-        node
-    }
-
-    unsafe fn _get_parent(&mut self, mut node: *mut Node) -> *mut Node {
-        // Make chain to root
         self.access(node);
 
-        // node is root
-        if (*node).left == std::ptr::null_mut() {
-            return std::ptr::null_mut();
-        }
-
-        // Get predecessor
-        node = (*node).left;
-
-        while (*node).right != std::ptr::null_mut() {
-            node = (*node).right;
-        }
-
-        // Amortized
-        self.splay_to_root(node);
-
         node
-    }
-
-    unsafe fn _get_depth(&mut self, node: *mut Node) -> i64 {
-        // Make chain to root
-        self.access(node);
-
-        // node is root
-        if (*node).left == std::ptr::null_mut() {
-            return 0;
-        }
-
-        (*(*node).left).count
-    }
-
-    unsafe fn _get_ancestor(&mut self, mut node: *mut Node, nth: i64) -> *mut Node {
-        let mut nth = self._get_depth(node) - nth;
-
-        loop {
-            let count = (*(*node).left).count;
-
-            if count == nth {
-                self.access(node);
-                return node;
-            }
-
-            if count < nth {
-                nth -= count + 1;
-                node = (*node).right;
-            } else {
-                node = (*node).left;
-            }
-        }
     }
 
     unsafe fn get_lca(&mut self, x: *mut Node, y: *mut Node) -> *mut Node {
         self.access(x);
         self.access(y);
-        self.splay_to_root(x);
+        self.splay(x);
 
         if (*x).parent == std::ptr::null_mut() {
             x
@@ -235,7 +181,7 @@ impl LinkCutTree {
         }
     }
 
-    unsafe fn splay_to_root(&mut self, node: *mut Node) {
+    unsafe fn splay(&mut self, node: *mut Node) {
         while !(*node).is_root() {
             if !(*(*node).parent).is_root() {
                 (*(*(*node).parent).parent).push();
@@ -260,19 +206,19 @@ impl LinkCutTree {
 
     unsafe fn access(&mut self, node: *mut Node) {
         // Untie lower node
-        self.splay_to_root(node);
+        self.splay(node);
         (*node).right = std::ptr::null_mut();
         (*node).update();
 
         // Tie upper node
         while (*node).parent != std::ptr::null_mut() {
             let parent = (*node).parent;
-            self.splay_to_root(parent);
+            self.splay(parent);
 
             (*parent).right = node;
             (*parent).update();
 
-            self.splay_to_root(node);
+            self.splay(node);
         }
     }
 
@@ -284,17 +230,6 @@ impl LinkCutTree {
         (*parent).parent = child;
 
         (*child).update();
-    }
-
-    unsafe fn _cut(&mut self, node: *mut Node) {
-        self.access(node);
-
-        if (*node).left != std::ptr::null_mut() {
-            (*(*node).left).parent = std::ptr::null_mut();
-        }
-        (*node).left = std::ptr::null_mut();
-
-        (*node).update();
     }
 
     unsafe fn update_value(&mut self, node: *mut Node, value: i64) {
@@ -309,7 +244,7 @@ impl LinkCutTree {
 
         // x to before lca == left->right
         self.access(x);
-        self.splay_to_root(lca);
+        self.splay(lca);
 
         if (*lca).right != std::ptr::null_mut() {
             ret += (*(*lca).right).sum;
@@ -317,7 +252,7 @@ impl LinkCutTree {
 
         // y to before lca == left->right
         self.access(y);
-        self.splay_to_root(lca);
+        self.splay(lca);
 
         if (*lca).right != std::ptr::null_mut() {
             ret += (*(*lca).right).sum;
@@ -328,25 +263,9 @@ impl LinkCutTree {
 
     unsafe fn make_root(&mut self, node: *mut Node) {
         self.access(node);
-        self.splay_to_root(node);
+        self.splay(node);
 
         (*node).flip ^= true;
-    }
-
-    unsafe fn _update_path(&mut self, x: *mut Node, y: *mut Node, _value: i64) {
-        // Original root
-        let root = self.get_root(x);
-
-        // Make x to root, tie with y
-        self.make_root(x);
-        self.access(y);
-
-        // Update value
-        self.splay_to_root(x);
-        (*x).push();
-
-        // Revert
-        self.make_root(root);
     }
 }
 

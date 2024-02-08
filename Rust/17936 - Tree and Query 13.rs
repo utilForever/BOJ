@@ -35,43 +35,39 @@ impl<R: io::BufRead> UnsafeScanner<R> {
 
 #[derive(Clone, Copy)]
 struct Data {
-    inter_weight: i64,
-    sum_left: i64,
-    sum_right: i64,
+    sum: i64,
+    min: i64,
+    max: i64,
     size: i64,
-    ret: i64,
 }
 
 impl Default for Data {
     fn default() -> Self {
         Self {
-            inter_weight: 0,
-            sum_left: 0,
-            sum_right: 0,
+            sum: 0,
+            min: i64::MAX,
+            max: i64::MIN,
             size: 0,
-            ret: 0,
         }
     }
 }
 
 impl Data {
-    fn new(size: i64) -> Self {
+    fn new(val: i64) -> Self {
         Self {
-            inter_weight: 0,
-            sum_left: 0,
-            sum_right: 0,
-            size,
-            ret: 0,
+            sum: val,
+            min: val,
+            max: val,
+            size: 1,
         }
     }
 
-    fn init(inter_weight: i64, sum_left: i64, sum_right: i64, size: i64, ret: i64) -> Self {
+    fn init(sum: i64, min: i64, max: i64, size: i64) -> Self {
         Self {
-            inter_weight,
-            sum_left,
-            sum_right,
+            sum,
+            min,
+            max,
             size,
-            ret,
         }
     }
 }
@@ -103,11 +99,10 @@ mod utils {
 
     pub fn add_data_and_data(a: Data, b: Data) -> Data {
         Data {
-            inter_weight: a.inter_weight + b.inter_weight,
-            sum_left: a.sum_left + b.sum_left,
-            sum_right: a.sum_right + b.sum_right,
+            sum: a.sum + b.sum,
+            min: a.min.min(b.min),
+            max: a.max.max(b.max),
             size: a.size + b.size,
-            ret: a.ret + b.ret + a.sum_right * b.size + a.inter_weight * b.size,
         }
     }
 
@@ -124,11 +119,10 @@ mod utils {
             a
         } else {
             Data::init(
-                a.inter_weight * b.a + b.b * a.size,
-                a.sum_left * b.a + b.b * a.size,
-                a.sum_right * b.a + b.b * a.size,
+                a.sum * b.a + b.b * a.size,
+                a.min * b.a + b.b,
+                a.max * b.a + b.b,
                 a.size,
-                a.ret,
             )
         }
     }
@@ -192,9 +186,7 @@ struct FakeNode {
 
 impl FakeNode {
     fn new(idx: usize) -> Self {
-        Self {
-            idx,
-        }
+        Self { idx }
     }
 }
 
@@ -205,18 +197,18 @@ struct TopTree {
 
 impl TopTree {
     fn new(n: usize) -> Self {
-        let mut nodes = vec![Node::default(); n + 1];
+        let nodes = vec![Node::default(); 2 * n + 1];
         let mut nodes_fake = Vec::new();
-
-        for i in 1..=n {
-            nodes[i] = Node::new(1);
-        }
 
         for i in n + 1..=2 * n {
             nodes_fake.push(FakeNode::new(i));
         }
 
         Self { nodes, nodes_fake }
+    }
+
+    fn init(&mut self, nodes: Vec<Node>) {
+        self.nodes[1..nodes.len()].copy_from_slice(&nodes[1..]);
     }
 
     fn push_flip(&mut self, u: usize) {
@@ -333,15 +325,15 @@ impl TopTree {
             dir_v = self.direction(v, 2);
         }
 
-        self.attach(
-            v,
-            dir_u as usize,
-            self.nodes[u].childs[(dir_u ^ 1) as usize],
-        );
-        self.attach(u, (dir_u ^ 1) as usize, v);
+        if dir_u != -1 {
+            let dir_u = dir_u as usize;
+            self.attach(v, dir_u, self.nodes[u].childs[dir_u ^ 1]);
+            self.attach(u, dir_u ^ 1, v);
+        }
 
-        if dir_v == 0 {
-            self.attach(w, dir_v as usize, u);
+        if dir_v != -1 {
+            let dir_v = dir_v as usize;
+            self.attach(w, dir_v, u);
         } else {
             self.nodes[u].parent = w;
         }
@@ -350,7 +342,7 @@ impl TopTree {
     fn splay(&mut self, u: usize, pos: usize) {
         self.push(u);
 
-        while self.direction(u, pos) != 0 && (pos == 0 || self.nodes[self.nodes[u].parent].fake) {
+        while self.direction(u, pos) != -1 && (pos == 0 || self.nodes[self.nodes[u].parent].fake) {
             let v = self.nodes[u].parent;
             let w = self.nodes[v].parent;
 
@@ -361,7 +353,7 @@ impl TopTree {
             let dir_u = self.direction(u, pos);
             let dir_v = self.direction(v, pos);
 
-            if dir_v == 0 && (pos == 0 || self.nodes[w].fake) {
+            if dir_v != -1 && (pos == 0 || self.nodes[w].fake) {
                 if dir_u == dir_v {
                     self.rotate(v, pos);
                 } else {
@@ -400,21 +392,32 @@ impl TopTree {
         self.push(u);
     }
 
-    fn rem(&mut self, u: usize) {
+    fn remove(&mut self, u: usize) {
         let v = self.nodes[u].parent;
-
         self.push_recursive(v);
+
+        let dir_u = self.direction(u, 2);
+        let dir_v = self.direction(v, 2);
 
         if self.nodes[v].fake {
             let w = self.nodes[v].parent;
 
-            self.attach(
-                w,
-                self.direction(v, 2) as usize,
-                self.nodes[v].childs[(self.direction(u, 2) ^ 1) as usize],
-            );
+            if dir_u != -1 && dir_v != -1 {
+                let dir_u = dir_u as usize;
+                let dir_v = dir_v as usize;
+                self.attach(w, dir_v, self.nodes[v].childs[dir_u ^ 1]);
+            }
+
+            if self.nodes[w].fake {
+                self.splay(w, 2);
+            }
+
+            self.nodes_fake.push(FakeNode::new(v));
         } else {
-            self.attach(v, self.direction(u, 2) as usize, 0);
+            if dir_u != -1 {
+                let dir_u = dir_u as usize;
+                self.attach(v, dir_u, 0);
+            }
         }
 
         self.nodes[u].parent = 0;
@@ -443,7 +446,7 @@ impl TopTree {
             v = self.parent(u);
 
             self.splay(v, 0);
-            self.rem(u);
+            self.remove(u);
             self.add(v, self.nodes[v].childs[1]);
             self.attach(v, 1, u);
             self.splay(u, 0);
@@ -463,7 +466,7 @@ impl TopTree {
         self.add(v, u);
     }
 
-    fn cut(&mut self, u: usize, v: usize) {
+    fn _cut(&mut self, u: usize, v: usize) {
         self.make_root(u);
         self.access(v);
 
@@ -474,8 +477,165 @@ impl TopTree {
     }
 }
 
+// Reference: https://infossm.github.io/blog/2021/03/21/toptree/
+// Reference: https://codeforces.com/blog/entry/103726
+// Reference: https://etyu39.tistory.com/8
 fn main() {
     let (stdin, stdout) = (io::stdin(), io::stdout());
     let mut scan = UnsafeScanner::new(stdin.lock());
     let mut out = io::BufWriter::new(stdout.lock());
+
+    let (n, m) = (scan.token::<usize>(), scan.token::<i64>());
+    let mut nodes = vec![Node::default(); n + 1];
+    let mut edges = vec![(0, 0); n - 1];
+
+    for edge in edges.iter_mut().take(n - 1) {
+        *edge = (scan.token::<usize>(), scan.token::<usize>());
+    }
+
+    for node in nodes.iter_mut().take(n + 1).skip(1) {
+        *node = Node::new(scan.token::<i64>());
+    }
+
+    let mut r = scan.token::<usize>();
+
+    let mut top_tree = TopTree::new(n);
+    top_tree.init(nodes);
+
+    for (x, y) in edges {
+        top_tree.link(x, y);
+    }
+
+    for _ in 0..m {
+        let op = scan.token::<i64>();
+
+        if op == 0 {
+            let (x, y) = (scan.token::<usize>(), scan.token::<i64>());
+            let lazy = Lazy::new(0, y);
+
+            top_tree.make_root(r);
+            top_tree.access(x);
+            top_tree.nodes[x].val = utils::add_integer_and_lazy(top_tree.nodes[x].val, lazy);
+
+            for i in 2..4 {
+                top_tree.push_subtree(top_tree.nodes[x].childs[i], true, lazy);
+            }
+        } else if op == 1 {
+            r = scan.token::<usize>();
+        } else if op == 2 {
+            let (x, y, z) = (
+                scan.token::<usize>(),
+                scan.token::<usize>(),
+                scan.token::<i64>(),
+            );
+
+            top_tree.make_root(x);
+            top_tree.access(y);
+            top_tree.push_path(y, Lazy::new(0, z));
+        } else if op == 3 {
+            let x = scan.token::<usize>();
+
+            top_tree.make_root(r);
+            top_tree.access(x);
+
+            let mut ret = Data::new(top_tree.nodes[x].val);
+
+            for i in 2..4 {
+                ret =
+                    utils::add_data_and_data(ret, top_tree.nodes[top_tree.nodes[x].childs[i]].all);
+            }
+
+            writeln!(out, "{}", ret.min).unwrap();
+        } else if op == 4 {
+            let x = scan.token::<usize>();
+
+            top_tree.make_root(r);
+            top_tree.access(x);
+
+            let mut ret = Data::new(top_tree.nodes[x].val);
+
+            for i in 2..4 {
+                ret =
+                    utils::add_data_and_data(ret, top_tree.nodes[top_tree.nodes[x].childs[i]].all);
+            }
+
+            writeln!(out, "{}", ret.max).unwrap();
+        } else if op == 5 {
+            let (x, y) = (scan.token::<usize>(), scan.token::<i64>());
+            let lazy = Lazy::new(1, y);
+
+            top_tree.make_root(r);
+            top_tree.access(x);
+            top_tree.nodes[x].val = utils::add_integer_and_lazy(top_tree.nodes[x].val, lazy);
+
+            for i in 2..4 {
+                top_tree.push_subtree(top_tree.nodes[x].childs[i], true, lazy);
+            }
+        } else if op == 6 {
+            let (x, y, z) = (
+                scan.token::<usize>(),
+                scan.token::<usize>(),
+                scan.token::<i64>(),
+            );
+
+            top_tree.make_root(x);
+            top_tree.access(y);
+            top_tree.push_path(y, Lazy::new(1, z));
+        } else if op == 7 {
+            let (x, y) = (scan.token::<usize>(), scan.token::<usize>());
+
+            top_tree.make_root(x);
+            top_tree.access(y);
+
+            let ret = top_tree.nodes[y].path;
+            writeln!(out, "{}", ret.min).unwrap();
+        } else if op == 8 {
+            let (x, y) = (scan.token::<usize>(), scan.token::<usize>());
+
+            top_tree.make_root(x);
+            top_tree.access(y);
+
+            let ret = top_tree.nodes[y].path;
+            writeln!(out, "{}", ret.max).unwrap();
+        } else if op == 9 {
+            let (x, y) = (scan.token::<usize>(), scan.token::<usize>());
+
+            top_tree.make_root(r);
+            top_tree.access(y);
+
+            if top_tree.access(x) == x {
+                continue;
+            }
+
+            let child = top_tree.nodes[x].childs[0];
+            top_tree.nodes[child].parent = 0;
+            top_tree.nodes[x].childs[0] = 0;
+
+            top_tree.pull(x);
+            top_tree.access(y);
+            top_tree.add(y, x);
+        } else if op == 10 {
+            let (x, y) = (scan.token::<usize>(), scan.token::<usize>());
+
+            top_tree.make_root(x);
+            top_tree.access(y);
+
+            let ret = top_tree.nodes[y].path;
+            writeln!(out, "{}", ret.sum).unwrap();
+        } else {
+            let x = scan.token::<usize>();
+
+            top_tree.make_root(r);
+            top_tree.access(x);
+
+            let mut ret = Data::new(top_tree.nodes[x].val);
+
+            for i in 2..4 {
+                ret =
+                    utils::add_data_and_data(ret, top_tree.nodes[top_tree.nodes[x].childs[i]].all);
+            }
+
+            writeln!(out, "{}", ret.sum).unwrap();
+        }
+    }
 }

@@ -34,7 +34,7 @@ impl<R: io::BufRead> UnsafeScanner<R> {
 }
 
 #[derive(Clone, Copy)]
-struct Data {
+pub struct Data {
     sum: i64,
     min: i64,
     max: i64,
@@ -73,7 +73,7 @@ impl Data {
 }
 
 #[derive(Clone, Copy)]
-struct Lazy {
+pub struct Lazy {
     a: i64,
     b: i64,
 }
@@ -132,7 +132,7 @@ mod utils {
 // - childs[0] and childs[1] are preferred children
 // - childs[2] and childs[3] are virtual children
 #[derive(Clone, Copy)]
-struct Node {
+pub struct Node {
     parent: usize,
     childs: [usize; 4],
     val: i64,
@@ -180,7 +180,7 @@ impl Node {
 }
 
 #[derive(Clone, Copy)]
-struct FakeNode {
+pub struct FakeNode {
     idx: usize,
 }
 

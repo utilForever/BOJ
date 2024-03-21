@@ -42,18 +42,17 @@ fn find(parent: &mut Vec<usize>, node: usize) -> usize {
     }
 }
 
-fn process_union(parent: &mut Vec<usize>, size: &mut Vec<i64>, mut a: usize, mut b: usize) -> i64 {
+fn process_union(parent: &mut Vec<usize>, size: &mut Vec<i64>, mut a: usize, mut b: usize) {
     a = find(parent, a);
     b = find(parent, b);
 
     if a == b {
-        return size[a];
+        return;
     }
 
     parent[a] = b;
     size[b] += size[a];
-
-    size[b]
+    size[a] = 0;
 }
 
 fn main() {
@@ -81,7 +80,9 @@ fn main() {
                 idx
             });
 
-            writeln!(out, "{}", process_union(&mut parent, &mut size, a, b)).unwrap();
+            process_union(&mut parent, &mut size, a, b);
+
+            writeln!(out, "{}", size[find(&mut parent, a)]).unwrap();
         }
     }
 }

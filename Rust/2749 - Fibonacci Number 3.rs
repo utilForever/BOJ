@@ -1,49 +1,75 @@
-use std::io;
+use io::Write;
+use std::{io, str};
 
-fn input_integers() -> Vec<i64> {
-    let mut s = String::new();
-
-    io::stdin().read_line(&mut s).unwrap();
-
-    let values: Vec<i64> = s
-        .as_mut_str()
-        .split_whitespace()
-        .map(|s| s.parse().unwrap())
-        .collect();
-
-    values
+pub struct UnsafeScanner<R> {
+    reader: R,
+    buf_str: Vec<u8>,
+    buf_iter: str::SplitAsciiWhitespace<'static>,
 }
 
+impl<R: io::BufRead> UnsafeScanner<R> {
+    pub fn new(reader: R) -> Self {
+        Self {
+            reader,
+            buf_str: vec![],
+            buf_iter: "".split_ascii_whitespace(),
+        }
+    }
+
+    pub fn token<T: str::FromStr>(&mut self) -> T {
+        loop {
+            if let Some(token) = self.buf_iter.next() {
+                return token.parse().ok().expect("Failed parse");
+            }
+            self.buf_str.clear();
+            self.reader
+                .read_until(b'\n', &mut self.buf_str)
+                .expect("Failed read");
+            self.buf_iter = unsafe {
+                let slice = str::from_utf8_unchecked(&self.buf_str);
+                std::mem::transmute(slice.split_ascii_whitespace())
+            }
+        }
+    }
+}
+
+static MOD: i64 = 1_000_000;
+
 fn main() {
-    let n = input_integers()[0] as usize;
+    let (stdin, stdout) = (io::stdin(), io::stdout());
+    let mut scan = UnsafeScanner::new(stdin.lock());
+    let mut out = io::BufWriter::new(stdout.lock());
+
+    let n = scan.token::<usize>();
 
     if n == 1 || n == 2 {
-        println!("1");
+        writeln!(out, "1").unwrap();
         return;
     }
 
     let mut start = 1;
     let mut end = 1;
-    let mut num_period = 0;
+    let mut period = 0;
 
     loop {
-        let tmp = (start + end) % 1_000_000;
+        let temp = (start + end) % MOD;
+
         start = end;
-        end = tmp;
-        num_period += 1;
+        end = temp;
+        period += 1;
 
         if start == 1 && end == 1 {
             break;
         }
     }
 
-    let mut fibonacci = vec![0_i64; num_period + 1];
-    fibonacci[1] = 1;
-    fibonacci[2] = 1;
+    let mut ret = vec![0_i64; period + 1];
+    ret[1] = 1;
+    ret[2] = 1;
 
-    for i in 3..=num_period {
-        fibonacci[i] = (fibonacci[i - 1] + fibonacci[i - 2]) % 1_000_000;
+    for i in 3..=period {
+        ret[i] = (ret[i - 1] + ret[i - 2]) % MOD;
     }
 
-    println!("{}", fibonacci[n % num_period]);
+    writeln!(out, "{}", ret[n % period]).unwrap();
 }

@@ -1,20 +1,39 @@
-use std::io;
+use io::Write;
+use std::{io, str};
 
-fn input_integers() -> Vec<i32> {
-    let mut s = String::new();
-
-    io::stdin().read_line(&mut s).unwrap();
-
-    let values: Vec<i32> = s
-        .as_mut_str()
-        .split_whitespace()
-        .map(|s| s.parse().unwrap())
-        .collect();
-
-    values
+pub struct UnsafeScanner<R> {
+    reader: R,
+    buf_str: Vec<u8>,
+    buf_iter: str::SplitAsciiWhitespace<'static>,
 }
 
-fn process_game(nums: &Vec<i32>, mut left: usize, mut right: usize) -> bool {
+impl<R: io::BufRead> UnsafeScanner<R> {
+    pub fn new(reader: R) -> Self {
+        Self {
+            reader,
+            buf_str: vec![],
+            buf_iter: "".split_ascii_whitespace(),
+        }
+    }
+
+    pub fn token<T: str::FromStr>(&mut self) -> T {
+        loop {
+            if let Some(token) = self.buf_iter.next() {
+                return token.parse().ok().expect("Failed parse");
+            }
+            self.buf_str.clear();
+            self.reader
+                .read_until(b'\n', &mut self.buf_str)
+                .expect("Failed read");
+            self.buf_iter = unsafe {
+                let slice = str::from_utf8_unchecked(&self.buf_str);
+                std::mem::transmute(slice.split_ascii_whitespace())
+            }
+        }
+    }
+}
+
+fn process_game(nums: &Vec<i64>, mut left: usize, mut right: usize) -> bool {
     let mut num_ones = 0;
 
     for i in left..=right {
@@ -51,11 +70,20 @@ fn process_game(nums: &Vec<i32>, mut left: usize, mut right: usize) -> bool {
 }
 
 fn main() {
-    let t = input_integers()[0];
+    let (stdin, stdout) = (io::stdin(), io::stdout());
+    let mut scan = UnsafeScanner::new(stdin.lock());
+    let mut out = io::BufWriter::new(stdout.lock());
+
+    let t = scan.token::<i64>();
 
     for _ in 0..t {
-        let n = input_integers()[0] as usize;
-        let mut nums = input_integers();
+        let n = scan.token::<usize>();
+        let mut nums = vec![0; n];
+
+        for i in 0..n {
+            nums[i] = scan.token::<i64>();
+        }
+
         let mut sum = 0;
 
         for j in 0..n {
@@ -64,19 +92,19 @@ fn main() {
 
         // If sum is 0, the game should be "Draw".
         if sum == 0 {
-            println!("Draw");
+            writeln!(out, "Draw").unwrap();
             continue;
         }
 
         // The number of integers is 1, the game should be "First".
         if n == 1 {
-            println!("First");
+            writeln!(out, "First").unwrap();
             continue;
         }
 
         // The number of integers is even, the game should be "First".
         if n % 2 == 0 {
-            println!("First");
+            writeln!(out, "First").unwrap();
             continue;
         }
 
@@ -98,17 +126,17 @@ fn main() {
         // Case 1: The first player selects the beginning of the sequence.
         // NOTE: The first player should select "1" at first turn.
         if nums[0] == 1 && process_game(&nums, 1, n - 1) {
-            println!("First");
+            writeln!(out, "First").unwrap();
             continue;
         }
 
         // Case 2: The first player selects the end of the sequence.
         // NOTE: The first player should select "1" at first turn.
         if nums[n - 1] == 1 && process_game(&nums, 0, n - 2) {
-            println!("First");
+            writeln!(out, "First").unwrap();
             continue;
         }
 
-        println!("Second");
+        writeln!(out, "Second").unwrap();
     }
 }

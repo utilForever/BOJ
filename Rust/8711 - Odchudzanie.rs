@@ -38,26 +38,15 @@ fn main() {
     let mut scan = UnsafeScanner::new(stdin.lock());
     let mut out = io::BufWriter::new(stdout.lock());
 
-    let n = scan.token::<usize>();
-    let mut weights = vec![0; n];
-
-    for i in 0..n {
-        weights[i] = scan.token::<i64>();
-    }
-
-    let mut weight_max = weights[0];
-    let mut weight_min = weights[0];
+    let n = scan.token::<i32>();
+    let mut weight_max = 0;
     let mut ret = 0;
 
-    for i in 1..n {
-        if weights[i] > weight_max {
-            weight_max = weights[i];
-            weight_min = weights[i];
-            ret = ret.max(weight_max - weight_min);
-        } else if weights[i] < weight_min {
-            weight_min = weights[i];
-            ret = ret.max(weight_max - weight_min);
-        }
+    for _ in 0..n {
+        let weight = scan.token::<i32>();
+
+        weight_max = weight_max.max(weight);
+        ret = ret.max(weight_max - weight);
     }
 
     writeln!(out, "{ret}").unwrap();

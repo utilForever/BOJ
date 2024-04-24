@@ -33,62 +33,32 @@ impl<R: io::BufRead> UnsafeScanner<R> {
     }
 }
 
-#[inline]
-fn calculate(powers_acc: &Vec<i64>, i: usize, j: usize) -> i64 {
-    if i > j {
-        0
-    } else {
-        (powers_acc[j] - powers_acc[i - 1]) * (j - i + 1) as i64
-    }
-}
+static mut POWERS: [i64; 8001] = [0; 8001];
+static mut POWERS_ACC: [i64; 8001] = [0; 8001];
+static mut RISKS: [[i64; 8001]; 801] = [[0; 8001]; 801];
 
-fn calculate_min(
-    risks: &mut Vec<Vec<i64>>,
-    idxes: &mut Vec<Vec<i64>>,
-    powers_acc: &Vec<i64>,
-    idx: usize,
-    left: i64,
-    right: i64,
-    p_left: usize,
-    p_right: usize,
-) {
-    if left > right {
-        return;
-    }
+unsafe fn calculate_min(idx: usize, left: usize, right: usize, p_left: usize, p_right: usize) {
+    let mid = (left + right) / 2;
+    let mut idx_opt = -1;
+    RISKS[idx][mid] = i64::MAX;
 
-    let mid = ((left + right) / 2) as usize;
-    risks[idx][mid] = -1;
-    idxes[idx][mid] = -1;
+    for i in p_left..=p_right.min(mid) {
+        let risk =
+            RISKS[idx - 1][i - 1] + (mid - i + 1) as i64 * (POWERS_ACC[mid] - POWERS_ACC[i - 1]);
 
-    for i in p_left..=p_right {
-        let risk = risks[idx - 1][i] + calculate(powers_acc, i + 1, mid);
-
-        if risks[idx][mid] == -1 || risks[idx][mid] > risk {
-            risks[idx][mid] = risk;
-            idxes[idx][mid] = i as i64;
+        if risk < RISKS[idx][mid] {
+            idx_opt = i as i64;
+            RISKS[idx][mid] = risk;
         }
     }
 
-    calculate_min(
-        risks,
-        idxes,
-        powers_acc,
-        idx,
-        left,
-        mid as i64 - 1,
-        p_left,
-        idxes[idx][mid] as usize,
-    );
-    calculate_min(
-        risks,
-        idxes,
-        powers_acc,
-        idx,
-        mid as i64 + 1,
-        right,
-        idxes[idx][mid] as usize,
-        p_right,
-    );
+    if left != mid {
+        calculate_min(idx, left, mid - 1, p_left, idx_opt as usize);
+    }
+
+    if right != mid {
+        calculate_min(idx, mid + 1, right, idx_opt as usize, p_right);
+    }
 }
 
 fn main() {
@@ -97,31 +67,21 @@ fn main() {
     let mut out = io::BufWriter::new(stdout.lock());
 
     let (l, g) = (scan.token::<usize>(), scan.token::<usize>());
-    let mut powers = vec![0; l + 1];
 
-    for i in 1..=l {
-        powers[i] = scan.token::<i64>();
+    unsafe {
+        for i in 1..=l {
+            POWERS[i] = scan.token::<i64>();
+            POWERS_ACC[i] = POWERS_ACC[i - 1] + POWERS[i];
+        }
+
+        for i in 1..=l {
+            RISKS[1][i] = POWERS_ACC[i] * i as i64;
+        }
+
+        for i in 2..=g {
+            calculate_min(i, 1, l, 1, l);
+        }
+
+        writeln!(out, "{}", RISKS[g][l]).unwrap();
     }
-
-    let powers_acc = powers
-        .iter()
-        .scan(0, |acc, &x| {
-            *acc = *acc + x;
-            Some(*acc)
-        })
-        .collect::<Vec<_>>();
-
-    let mut risks = vec![vec![0; l + 1]; g + 1];
-    let mut idxes = vec![vec![0; l + 1]; g + 1];
-
-    for i in 1..=l {
-        risks[1][i] = calculate(&powers_acc, 1, i);
-        idxes[1][i] = 0;
-    }
-
-    for i in 2..=g {
-        calculate_min(&mut risks, &mut idxes, &powers_acc, i, 0, l as i64, 0, l);
-    }
-
-    writeln!(out, "{}", risks[g][l]).unwrap();
 }

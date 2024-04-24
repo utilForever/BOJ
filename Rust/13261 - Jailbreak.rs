@@ -1,32 +1,51 @@
-use std::io;
+use io::Write;
+use std::{io, str};
 
-fn input_integers() -> Vec<usize> {
-    let mut s = String::new();
-
-    io::stdin().read_line(&mut s).unwrap();
-
-    let values: Vec<usize> = s
-        .as_mut_str()
-        .split_whitespace()
-        .map(|s| s.parse().unwrap())
-        .collect();
-
-    values
+pub struct UnsafeScanner<R> {
+    reader: R,
+    buf_str: Vec<u8>,
+    buf_iter: str::SplitAsciiWhitespace<'static>,
 }
 
-#[inline]
-fn calculate_risk(accumulated_jailbreak_power: &Vec<usize>, i: usize, j: usize) -> i64 {
-    if i > j {
-        0
-    } else {
-        ((accumulated_jailbreak_power[j] - accumulated_jailbreak_power[i - 1]) * (j - i + 1)) as i64
+impl<R: io::BufRead> UnsafeScanner<R> {
+    pub fn new(reader: R) -> Self {
+        Self {
+            reader,
+            buf_str: vec![],
+            buf_iter: "".split_ascii_whitespace(),
+        }
+    }
+
+    pub fn token<T: str::FromStr>(&mut self) -> T {
+        loop {
+            if let Some(token) = self.buf_iter.next() {
+                return token.parse().ok().expect("Failed parse");
+            }
+            self.buf_str.clear();
+            self.reader
+                .read_until(b'\n', &mut self.buf_str)
+                .expect("Failed read");
+            self.buf_iter = unsafe {
+                let slice = str::from_utf8_unchecked(&self.buf_str);
+                std::mem::transmute(slice.split_ascii_whitespace())
+            }
+        }
     }
 }
 
-fn calculate_minimum_risk(
-    jailbreak_risk: &mut Vec<Vec<i64>>,
-    assigned_guard_idx: &mut Vec<Vec<i64>>,
-    accumulated_jailbreak_power: &Vec<usize>,
+#[inline]
+fn calculate(powers_acc: &Vec<i64>, i: usize, j: usize) -> i64 {
+    if i > j {
+        0
+    } else {
+        (powers_acc[j] - powers_acc[i - 1]) * (j - i + 1) as i64
+    }
+}
+
+fn calculate_min(
+    risks: &mut Vec<Vec<i64>>,
+    idxes: &mut Vec<Vec<i64>>,
+    powers_acc: &Vec<i64>,
     idx: usize,
     left: i64,
     right: i64,
@@ -38,77 +57,71 @@ fn calculate_minimum_risk(
     }
 
     let mid = ((left + right) / 2) as usize;
-
-    jailbreak_risk[idx][mid] = -1;
-    assigned_guard_idx[idx][mid] = -1;
+    risks[idx][mid] = -1;
+    idxes[idx][mid] = -1;
 
     for i in p_left..=p_right {
-        let risk =
-            jailbreak_risk[idx - 1][i] + calculate_risk(accumulated_jailbreak_power, i + 1, mid);
+        let risk = risks[idx - 1][i] + calculate(powers_acc, i + 1, mid);
 
-        if jailbreak_risk[idx][mid] == -1 || jailbreak_risk[idx][mid] > risk {
-            jailbreak_risk[idx][mid] = risk;
-            assigned_guard_idx[idx][mid] = i as i64;
+        if risks[idx][mid] == -1 || risks[idx][mid] > risk {
+            risks[idx][mid] = risk;
+            idxes[idx][mid] = i as i64;
         }
     }
 
-    calculate_minimum_risk(
-        jailbreak_risk,
-        assigned_guard_idx,
-        accumulated_jailbreak_power,
+    calculate_min(
+        risks,
+        idxes,
+        powers_acc,
         idx,
         left,
         mid as i64 - 1,
         p_left,
-        assigned_guard_idx[idx][mid] as usize,
+        idxes[idx][mid] as usize,
     );
-    calculate_minimum_risk(
-        jailbreak_risk,
-        assigned_guard_idx,
-        accumulated_jailbreak_power,
+    calculate_min(
+        risks,
+        idxes,
+        powers_acc,
         idx,
         mid as i64 + 1,
         right,
-        assigned_guard_idx[idx][mid] as usize,
+        idxes[idx][mid] as usize,
         p_right,
     );
 }
 
 fn main() {
-    let nums = input_integers();
-    let (l, g) = (nums[0], nums[1]);
+    let (stdin, stdout) = (io::stdin(), io::stdout());
+    let mut scan = UnsafeScanner::new(stdin.lock());
+    let mut out = io::BufWriter::new(stdout.lock());
 
-    let mut jailbreak_power = input_integers();
-    jailbreak_power.insert(0, 0);
+    let (l, g) = (scan.token::<usize>(), scan.token::<usize>());
+    let mut powers = vec![0; l + 1];
 
-    let accumulated_jailbreak_power: Vec<usize> = jailbreak_power
+    for i in 1..=l {
+        powers[i] = scan.token::<i64>();
+    }
+
+    let powers_acc = powers
         .iter()
         .scan(0, |acc, &x| {
             *acc = *acc + x;
             Some(*acc)
         })
-        .collect();
+        .collect::<Vec<_>>();
 
-    let mut jailbreak_risk = vec![vec![0; l + 1]; g + 1];
-    let mut assigned_guard_idx = vec![vec![0; l + 1]; g + 1];
+    let mut risks = vec![vec![0; l + 1]; g + 1];
+    let mut idxes = vec![vec![0; l + 1]; g + 1];
 
     for i in 1..=l {
-        jailbreak_risk[1][i] = calculate_risk(&accumulated_jailbreak_power, 1, i);
-        assigned_guard_idx[1][i] = 0;
+        risks[1][i] = calculate(&powers_acc, 1, i);
+        idxes[1][i] = 0;
     }
 
     for i in 2..=g {
-        calculate_minimum_risk(
-            &mut jailbreak_risk,
-            &mut assigned_guard_idx,
-            &accumulated_jailbreak_power,
-            i,
-            0,
-            l as i64,
-            0,
-            l,
-        );
+        calculate_min(&mut risks, &mut idxes, &powers_acc, i, 0, l as i64, 0, l);
     }
 
-    println!("{}", jailbreak_risk[g][l]);
+    writeln!(out, "{}", risks[g][l]).unwrap();
 }

@@ -1,5 +1,5 @@
 use io::Write;
-use std::io;
+use std::{cmp::Ordering, io};
 
 fn main() {
     let stdout = io::stdout();
@@ -18,23 +18,21 @@ fn main() {
         nums.push(s);
     }
 
-    for i in 0..nums.len() - 1 {
-        let mut idx = i;
-
-        for j in i + 1..nums.len() {
-            let mut str1 = nums[j].clone();
-            str1.push_str(&nums[idx]);
-
-            let mut str2 = nums[idx].clone();
-            str2.push_str(&nums[j]);
-
-            if str1 > str2 {
-                idx = j;
-            }
-        }
-
-        nums.swap(i, idx);
+    if nums.iter().all(|s| s == &"0") {
+        writeln!(out, "0").unwrap();
+        return;
     }
+
+    nums.sort_by(|a, b| {
+        let ab = a.to_string() + &b.to_string();
+        let ba = b.to_string() + &a.to_string();
+
+        match ab.cmp(&ba) {
+            Ordering::Less => Ordering::Greater,
+            Ordering::Greater => Ordering::Less,
+            Ordering::Equal => Ordering::Equal,
+        }
+    });
 
     let mut ret = String::new();
 
@@ -42,14 +40,5 @@ fn main() {
         ret.push_str(&num);
     }
 
-    writeln!(
-        out,
-        "{}",
-        if nums.iter().filter(|s| s == &"0").count() == nums.len() {
-            "0".to_string()
-        } else {
-            ret
-        }
-    )
-    .unwrap();
+    writeln!(out, "{ret}").unwrap();
 }

@@ -1,95 +1,102 @@
-use std::{collections::VecDeque, io};
+use io::Write;
+use std::{collections::VecDeque, io, str};
 
-fn input_integers() -> Vec<i32> {
-    let mut s = String::new();
-
-    io::stdin().read_line(&mut s).unwrap();
-
-    let values: Vec<i32> = s
-        .as_mut_str()
-        .split_whitespace()
-        .map(|s| s.parse().unwrap())
-        .collect();
-
-    values
+pub struct UnsafeScanner<R> {
+    reader: R,
+    buf_str: Vec<u8>,
+    buf_iter: str::SplitAsciiWhitespace<'static>,
 }
 
-fn explore(
-    maze: &Vec<Vec<char>>,
-    visited: &mut Vec<Vec<Vec<i32>>>,
-    n: i32,
-    m: i32,
-    k: usize,
-) -> i32 {
+impl<R: io::BufRead> UnsafeScanner<R> {
+    pub fn new(reader: R) -> Self {
+        Self {
+            reader,
+            buf_str: vec![],
+            buf_iter: "".split_ascii_whitespace(),
+        }
+    }
+
+    pub fn token<T: str::FromStr>(&mut self) -> T {
+        loop {
+            if let Some(token) = self.buf_iter.next() {
+                return token.parse().ok().expect("Failed parse");
+            }
+            self.buf_str.clear();
+            self.reader
+                .read_until(b'\n', &mut self.buf_str)
+                .expect("Failed read");
+            self.buf_iter = unsafe {
+                let slice = str::from_utf8_unchecked(&self.buf_str);
+                std::mem::transmute(slice.split_ascii_whitespace())
+            }
+        }
+    }
+}
+
+fn main() {
+    let (stdin, stdout) = (io::stdin(), io::stdout());
+    let mut scan = UnsafeScanner::new(stdin.lock());
+    let mut out = io::BufWriter::new(stdout.lock());
+
+    let (n, m, k) = (
+        scan.token::<usize>(),
+        scan.token::<usize>(),
+        scan.token::<usize>(),
+    );
+    let mut maze = vec![vec![0; m]; n];
+    let mut visited = vec![vec![vec![0; k + 1]; m]; n];
+
+    for i in 0..n {
+        let line = scan.token::<String>();
+
+        for (j, c) in line.chars().enumerate() {
+            maze[i][j] = c as u8 - b'0';
+        }
+    }
+
+    let dy = [-1, 1, 0, 0];
+    let dx = [0, 0, -1, 1];
     let mut queue = VecDeque::new();
+
     queue.push_back((0, 0, 0));
     visited[0][0][0] = 1;
 
     while !queue.is_empty() {
-        let (cur_x, cur_y, num_break) = queue.pop_front().unwrap();
+        let (y_curr, x_curr, cnt_break) = queue.pop_front().unwrap();
 
-        if cur_y == n - 1 && cur_x == m - 1 {
-            return visited[cur_y as usize][cur_x as usize][num_break];
+        if y_curr == n - 1 && x_curr == m - 1 {
+            writeln!(out, "{}", visited[y_curr][x_curr][cnt_break]).unwrap();
+            return;
         }
 
         for i in 0..4 {
-            let next_x = cur_x
-                + if i == 0 {
-                    -1
-                } else if i == 1 {
-                    1
-                } else {
-                    0
-                };
-            let next_y = cur_y
-                + if i == 2 {
-                    -1
-                } else if i == 3 {
-                    1
-                } else {
-                    0
-                };
+            let y_next = y_curr as i32 + dy[i];
+            let x_next = x_curr as i32 + dx[i];
 
-            if next_x < 0 || next_x >= m || next_y < 0 || next_y >= n {
+            if y_next < 0 || y_next >= n as i32 || x_next < 0 || x_next >= m as i32 {
                 continue;
             }
 
-            if maze[next_y as usize][next_x as usize] == '0' {
-                if visited[next_y as usize][next_x as usize][num_break] == 0 {
-                    visited[next_y as usize][next_x as usize][num_break] =
-                        visited[cur_y as usize][cur_x as usize][num_break] + 1;
-                    queue.push_back((next_x, next_y, num_break));
+            let y_next = y_next as usize;
+            let x_next = x_next as usize;
+
+            if maze[y_next][x_next] == 0 {
+                if visited[y_next][x_next][cnt_break] > 0 {
+                    continue;
                 }
-            } else if maze[next_y as usize][next_x as usize] == '1' && num_break < k {
-                if visited[next_y as usize][next_x as usize][num_break + 1] == 0 {
-                    visited[next_y as usize][next_x as usize][num_break + 1] =
-                        visited[cur_y as usize][cur_x as usize][num_break] + 1;
-                    queue.push_back((next_x, next_y, num_break + 1));
+
+                visited[y_next][x_next][cnt_break] = visited[y_curr][x_curr][cnt_break] + 1;
+                queue.push_back((y_next, x_next, cnt_break));
+            } else if maze[y_next][x_next] == 1 && cnt_break < k {
+                if visited[y_next][x_next][cnt_break + 1] > 0 {
+                    continue;
                 }
+
+                visited[y_next][x_next][cnt_break + 1] = visited[y_curr][x_curr][cnt_break] + 1;
+                queue.push_back((y_next, x_next, cnt_break + 1));
             }
         }
     }
 
-    -1
-}
-
-fn main() {
-    let nums = input_integers();
-    let (n, m, k) = (nums[0] as usize, nums[1] as usize, nums[2] as usize);
-
-    let mut maze = vec![vec![' '; m]; n];
-    let mut visited = vec![vec![vec![0; k + 1]; m]; n];
-
-    for i in 0..n {
-        let mut s = String::new();
-        io::stdin().read_line(&mut s).unwrap();
-        s = s.trim().to_string();
-        let mut chars = s.chars();
-
-        for j in 0..m {
-            maze[i][j] = chars.next().unwrap();
-        }
-    }
-
-    println!("{}", explore(&maze, &mut visited, n as i32, m as i32, k));
+    writeln!(out, "-1").unwrap();
 }

@@ -1,63 +1,91 @@
-use std::{collections::VecDeque, io};
+use io::Write;
+use std::{collections::VecDeque, io, str};
 
-fn input_integers() -> Vec<i32> {
-    let mut s = String::new();
-
-    io::stdin().read_line(&mut s).unwrap();
-
-    let values: Vec<i32> = s
-        .as_mut_str()
-        .split_whitespace()
-        .map(|s| s.parse().unwrap())
-        .collect();
-
-    values
+pub struct UnsafeScanner<R> {
+    reader: R,
+    buf_str: Vec<u8>,
+    buf_iter: str::SplitAsciiWhitespace<'static>,
 }
 
-fn process_bfs(map: &Vec<Vec<char>>, n: usize) {
+impl<R: io::BufRead> UnsafeScanner<R> {
+    pub fn new(reader: R) -> Self {
+        Self {
+            reader,
+            buf_str: vec![],
+            buf_iter: "".split_ascii_whitespace(),
+        }
+    }
+
+    pub fn token<T: str::FromStr>(&mut self) -> T {
+        loop {
+            if let Some(token) = self.buf_iter.next() {
+                return token.parse().ok().expect("Failed parse");
+            }
+            self.buf_str.clear();
+            self.reader
+                .read_until(b'\n', &mut self.buf_str)
+                .expect("Failed read");
+            self.buf_iter = unsafe {
+                let slice = str::from_utf8_unchecked(&self.buf_str);
+                std::mem::transmute(slice.split_ascii_whitespace())
+            }
+        }
+    }
+}
+
+fn main() {
+    let (stdin, stdout) = (io::stdin(), io::stdout());
+    let mut scan = UnsafeScanner::new(stdin.lock());
+    let mut out = io::BufWriter::new(stdout.lock());
+
+    let n = scan.token::<usize>();
+    let mut map = vec![vec![0; n]; n];
+
+    for i in 0..n {
+        let line = scan.token::<String>();
+
+        for (j, c) in line.chars().enumerate() {
+            map[i][j] = c as i64 - '0' as i64;
+        }
+    }
+
     let mut queue = VecDeque::new();
     let mut checked = vec![vec![false; n]; n];
     let mut num_houses = Vec::new();
     let mut numbering_count = 0;
 
+    let dy = [-1, 0, 1, 0];
+    let dx = [0, 1, 0, -1];
+
     for i in 0..n {
         for j in 0..n {
             let mut num_house = 0;
 
-            if map[i][j] == '1' && !checked[i][j] {
+            if map[i][j] == 1 && !checked[i][j] {
                 checked[i][j] = true;
-                queue.push_back((j, i));
+                queue.push_back((i, j));
                 numbering_count += 1;
             }
 
             while !queue.is_empty() {
-                let (x, y) = queue.pop_front().unwrap();
+                let (y_curr, x_curr) = queue.pop_front().unwrap();
 
                 for i in 0..4 {
-                    let (dx, dy) = match i {
-                        0 => (0, -1),
-                        1 => (1, 0),
-                        2 => (0, 1),
-                        3 => (-1, 0),
-                        _ => (0, 0),
-                    };
+                    let (y_next, x_next) = (y_curr as i32 + dy[i], x_curr as i32 + dx[i]);
 
-                    let (next_x, next_y) = (x as i32 + dx, y as i32 + dy);
-
-                    if next_x < 0 || next_x >= n as i32 || next_y < 0 || next_y >= n as i32 {
+                    if y_next < 0 || y_next >= n as i32 || x_next < 0 || x_next >= n as i32 {
                         continue;
                     }
 
-                    let next_x = next_x as usize;
-                    let next_y = next_y as usize;
+                    let (y_next, x_next) = (y_next as usize, x_next as usize);
 
-                    if checked[next_y][next_x] {
+                    if checked[y_next][x_next] {
                         continue;
                     }
 
-                    if map[next_y][next_x] == '1' {
-                        checked[next_y][next_x] = true;
-                        queue.push_back((next_x, next_y));
+                    if map[y_next][x_next] == 1 {
+                        checked[y_next][x_next] = true;
+                        queue.push_back((y_next, x_next));
                     }
                 }
 
@@ -70,29 +98,11 @@ fn process_bfs(map: &Vec<Vec<char>>, n: usize) {
         }
     }
 
-    println!("{}", numbering_count);
+    writeln!(out, "{numbering_count}").unwrap();
 
     num_houses.sort();
 
-    for num_house in num_houses.iter() {
-        println!("{}", num_house);
+    for num_house in num_houses {
+        writeln!(out, "{num_house}").unwrap();
     }
-}
-
-fn main() {
-    let n = input_integers()[0] as usize;
-    let mut map = vec![vec!['0'; n]; n];
-
-    for i in 0..n {
-        let mut s = String::new();
-        io::stdin().read_line(&mut s).unwrap();
-        s = s.trim().to_string();
-        let mut chars = s.chars();
-
-        for j in 0..n {
-            map[i][j] = chars.next().unwrap();
-        }
-    }
-
-    process_bfs(&map, n);
 }

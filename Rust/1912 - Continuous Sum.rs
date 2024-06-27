@@ -39,23 +39,18 @@ fn main() {
     let mut out = io::BufWriter::new(stdout.lock());
 
     let n = scan.token::<usize>();
-    let mut sequence = vec![0; n];
+    let mut nums = vec![0; n];
 
     for i in 0..n {
-        sequence[i] = scan.token::<i64>();
+        nums[i] = scan.token::<i64>();
     }
 
-    let mut sum = vec![0; n];
+    let mut dp = vec![0; n];
+    dp[0] = nums[0];
 
-    for i in 0..n {
-        sum[i] = sequence[i];
-
-        if i == 0 {
-            continue;
-        }
-
-        sum[i] = sum[i].max(sum[i - 1] + sequence[i]);
+    for i in 1..n {
+        dp[i] = nums[i].max(nums[i] + dp[i - 1]);
     }
 
-    writeln!(out, "{}", sum.iter().max().unwrap()).unwrap();
+    writeln!(out, "{}", dp.iter().max().unwrap()).unwrap();
 }

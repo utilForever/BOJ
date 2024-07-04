@@ -1,72 +1,96 @@
-use std::io;
+use io::Write;
+use std::{io, str};
 
-fn input_integers() -> Vec<i64> {
-    let mut s = String::new();
-
-    io::stdin().read_line(&mut s).unwrap();
-
-    let values: Vec<i64> = s
-        .as_mut_str()
-        .split_whitespace()
-        .map(|s| s.parse().unwrap())
-        .collect();
-
-    values
+pub struct UnsafeScanner<R> {
+    reader: R,
+    buf_str: Vec<u8>,
+    buf_iter: str::SplitAsciiWhitespace<'static>,
 }
 
-fn find_root(root: &mut Vec<usize>, idx: usize) -> usize {
-    if root[idx] == 0 {
-        root[idx] = idx;
-        return idx;
+impl<R: io::BufRead> UnsafeScanner<R> {
+    pub fn new(reader: R) -> Self {
+        Self {
+            reader,
+            buf_str: vec![],
+            buf_iter: "".split_ascii_whitespace(),
+        }
     }
 
-    if root[idx] == idx {
-        return idx;
+    pub fn token<T: str::FromStr>(&mut self) -> T {
+        loop {
+            if let Some(token) = self.buf_iter.next() {
+                return token.parse().ok().expect("Failed parse");
+            }
+            self.buf_str.clear();
+            self.reader
+                .read_until(b'\n', &mut self.buf_str)
+                .expect("Failed read");
+            self.buf_iter = unsafe {
+                let slice = str::from_utf8_unchecked(&self.buf_str);
+                std::mem::transmute(slice.split_ascii_whitespace())
+            }
+        }
     }
-
-    root[idx] = find_root(root, root[idx]);
-    root[idx]
 }
 
-fn connect_vertices(root: &mut Vec<usize>, a: usize, b: usize) {
-    let a = find_root(root, a);
-    let b = find_root(root, b);
-
-    if a != b {
-        root[a] = b;
+fn find(parent: &mut Vec<usize>, node: usize) -> usize {
+    if parent[node] == 0 {
+        parent[node] = node;
+        node
+    } else if parent[node] == node {
+        node
+    } else {
+        parent[node] = find(parent, parent[node]);
+        parent[node]
     }
+}
+
+fn process_union(parent: &mut Vec<usize>, mut a: usize, mut b: usize) {
+    a = find(parent, a);
+    b = find(parent, b);
+
+    if a == b {
+        return;
+    }
+
+    parent[a] = b;
 }
 
 fn main() {
-    let nums = input_integers();
-    let (v, e) = (nums[0] as usize, nums[1] as usize);
+    let (stdin, stdout) = (io::stdin(), io::stdout());
+    let mut scan = UnsafeScanner::new(stdin.lock());
+    let mut out = io::BufWriter::new(stdout.lock());
 
-    let mut edges = Vec::new();
+    let (v, e) = (scan.token::<usize>(), scan.token::<usize>());
+    let mut edges = vec![(0, 0, 0); e];
 
-    for _ in 0..e {
-        let nums = input_integers();
-        let (a, b, c) = (nums[0] as usize, nums[1] as usize, nums[2]);
-        edges.push((a, b, c));
+    for i in 0..e {
+        let (a, b, c) = (
+            scan.token::<usize>(),
+            scan.token::<usize>(),
+            scan.token::<i64>(),
+        );
+        edges[i] = (a, b, c);
     }
 
     edges.sort_by(|a, b| a.2.cmp(&b.2));
 
-    let mut root = vec![0_usize; v + 1];
+    let mut root = vec![0; v + 1];
     let mut visited = vec![false; v + 1];
     let mut sum = 0;
 
     for i in 0..e {
-        if find_root(&mut root, edges[i].0) == find_root(&mut root, edges[i].1) {
+        if find(&mut root, edges[i].0) == find(&mut root, edges[i].1) {
             continue;
         }
 
         visited[edges[i].0] = true;
         visited[edges[i].1] = true;
 
-        connect_vertices(&mut root, edges[i].0, edges[i].1);
+        process_union(&mut root, edges[i].0, edges[i].1);
 
         sum += edges[i].2;
     }
 
-    println!("{}", sum);
+    writeln!(out, "{sum}").unwrap();
 }

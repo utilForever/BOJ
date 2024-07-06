@@ -49,7 +49,7 @@ fn main() {
         );
 
         if cost[a][b] != 0 {
-            cost[a][b] = std::cmp::min(cost[a][b], c);
+            cost[a][b] = cost[a][b].min(c);
         } else {
             cost[a][b] = c;
         }
@@ -62,12 +62,12 @@ fn main() {
                     continue;
                 }
 
-                if cost[i][k] != 0 && cost[k][j] != 0 {
-                    if cost[i][j] == 0 {
-                        cost[i][j] = cost[i][k] + cost[k][j];
-                    } else {
-                        cost[i][j] = std::cmp::min(cost[i][j], cost[i][k] + cost[k][j]);
-                    }
+                if cost[i][k] == 0 || cost[k][j] == 0 {
+                    continue;
+                }
+
+                if cost[i][j] == 0 || cost[i][j] > cost[i][k] + cost[k][j] {
+                    cost[i][j] = cost[i][k] + cost[k][j];
                 }
             }
         }

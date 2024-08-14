@@ -1,29 +1,50 @@
-use std::io;
+use io::Write;
+use std::{io, str};
 
-fn input_integers() -> Vec<i64> {
-    let mut s = String::new();
-
-    io::stdin().read_line(&mut s).unwrap();
-
-    let values: Vec<i64> = s
-        .as_mut_str()
-        .split_whitespace()
-        .map(|s| s.parse().unwrap())
-        .collect();
-
-    values
+pub struct UnsafeScanner<R> {
+    reader: R,
+    buf_str: Vec<u8>,
+    buf_iter: str::SplitAsciiWhitespace<'static>,
 }
 
-fn multiply_matrix(a: Vec<Vec<i64>>, b: Vec<Vec<i64>>) -> Vec<Vec<i64>> {
+impl<R: io::BufRead> UnsafeScanner<R> {
+    pub fn new(reader: R) -> Self {
+        Self {
+            reader,
+            buf_str: vec![],
+            buf_iter: "".split_ascii_whitespace(),
+        }
+    }
+
+    pub fn token<T: str::FromStr>(&mut self) -> T {
+        loop {
+            if let Some(token) = self.buf_iter.next() {
+                return token.parse().ok().expect("Failed parse");
+            }
+            self.buf_str.clear();
+            self.reader
+                .read_until(b'\n', &mut self.buf_str)
+                .expect("Failed read");
+            self.buf_iter = unsafe {
+                let slice = str::from_utf8_unchecked(&self.buf_str);
+                std::mem::transmute(slice.split_ascii_whitespace())
+            }
+        }
+    }
+}
+
+static MOD: i64 = 1_000_000_007;
+
+fn multiply(a: Vec<Vec<i64>>, b: Vec<Vec<i64>>) -> Vec<Vec<i64>> {
     let mut ret = vec![vec![0, 2]; 2];
 
     for i in 0..2 {
         for j in 0..2 {
             ret[i][j] = 0;
-            
+
             for k in 0..2 {
                 ret[i][j] += a[i][k] * b[k][j];
-                ret[i][j] %= 1_000_000_007;
+                ret[i][j] %= MOD;
             }
         }
     }
@@ -31,32 +52,37 @@ fn multiply_matrix(a: Vec<Vec<i64>>, b: Vec<Vec<i64>>) -> Vec<Vec<i64>> {
     ret
 }
 
-fn get_fibonacci(n: i64) -> Vec<Vec<i64>> {
-    let multiplier = vec![vec![0, 1], vec![1, 1]];
+fn fibonacci(n: i64) -> Vec<Vec<i64>> {
+    let multiplier = vec![vec![1, 1], vec![1, 0]];
 
     if n == 1 {
         return multiplier;
     }
 
-    let temp_matrix: Vec<Vec<i64>>;
-
     if n % 2 == 1 {
-        temp_matrix = get_fibonacci(n - 1);
-        return multiply_matrix(multiplier, temp_matrix.clone());
+        let rest = fibonacci(n - 1);
+        multiply(multiplier, rest)
     } else {
-        temp_matrix = get_fibonacci(n / 2);
-        return multiply_matrix(temp_matrix.clone(), temp_matrix);
+        let rest = fibonacci(n / 2);
+        multiply(rest.clone(), rest)
     }
 }
 
+// Reference: https://en.wikipedia.org/wiki/Fibonacci_sequence#Matrix_form
+// Reference: https://www.acmicpc.net/blog/view/28
 fn main() {
-    let n = input_integers()[0];
+    let (stdin, stdout) = (io::stdin(), io::stdout());
+    let mut scan = UnsafeScanner::new(stdin.lock());
+    let mut out = io::BufWriter::new(stdout.lock());
+
+    let n = scan.token::<i64>();
 
     if n == 0 {
-        println!("0");
+        writeln!(out, "0").unwrap();
         return;
     }
 
-    let ans = get_fibonacci(n);
-    println!("{}", ans[1][0]);
+    let ret = fibonacci(n);
+
+    writeln!(out, "{}", ret[1][0] % MOD).unwrap();
 }

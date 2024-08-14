@@ -53,7 +53,7 @@ fn multiply(a: Vec<Vec<i64>>, b: Vec<Vec<i64>>) -> Vec<Vec<i64>> {
 }
 
 fn fibonacci(n: i64) -> Vec<Vec<i64>> {
-    let multiplier = vec![vec![0, 1], vec![1, 1]];
+    let multiplier = vec![vec![1, 1], vec![1, 0]];
 
     if n == 1 {
         return multiplier;
@@ -68,6 +68,8 @@ fn fibonacci(n: i64) -> Vec<Vec<i64>> {
     }
 }
 
+// Reference: https://en.wikipedia.org/wiki/Fibonacci_sequence#Combinatorial_identities
+// Reference: https://www.acmicpc.net/blog/view/28
 fn main() {
     let (stdin, stdout) = (io::stdin(), io::stdout());
     let mut scan = UnsafeScanner::new(stdin.lock());
@@ -75,8 +77,9 @@ fn main() {
 
     let (a, b) = (scan.token::<i64>(), scan.token::<i64>());
 
-    let ret_b = fibonacci(b + 2)[1][0];
-    let ret_a = fibonacci(a + 1)[1][0];
+    // NOTE: sum(i = 1 to n) F(i) = F(n + 2) - 1
+    let ret_b = fibonacci(b + 2)[1][0] - 1;
+    let ret_a = fibonacci(a + 2)[1][1] - 1;
 
     writeln!(out, "{}", (ret_b - ret_a + MOD) % MOD).unwrap();
 }

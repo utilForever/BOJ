@@ -1,57 +1,66 @@
-use std::io;
+use io::Write;
+use std::{io, str};
 
-fn input_integers() -> Vec<i64> {
-    let mut s = String::new();
+pub struct UnsafeScanner<R> {
+    reader: R,
+    buf_str: Vec<u8>,
+    buf_iter: str::SplitAsciiWhitespace<'static>,
+}
 
-    io::stdin().read_line(&mut s).unwrap();
+impl<R: io::BufRead> UnsafeScanner<R> {
+    pub fn new(reader: R) -> Self {
+        Self {
+            reader,
+            buf_str: vec![],
+            buf_iter: "".split_ascii_whitespace(),
+        }
+    }
 
-    let values: Vec<i64> = s
-        .as_mut_str()
-        .split_whitespace()
-        .map(|s| s.parse().unwrap())
-        .collect();
+    pub fn token<T: str::FromStr>(&mut self) -> T {
+        loop {
+            if let Some(token) = self.buf_iter.next() {
+                return token.parse().ok().expect("Failed parse");
+            }
+            self.buf_str.clear();
+            self.reader
+                .read_until(b'\n', &mut self.buf_str)
+                .expect("Failed read");
+            self.buf_iter = unsafe {
+                let slice = str::from_utf8_unchecked(&self.buf_str);
+                std::mem::transmute(slice.split_ascii_whitespace())
+            }
+        }
+    }
 
-    values
+    pub fn line(&mut self) -> String {
+        let mut input = String::new();
+        self.reader.read_line(&mut input).expect("Failed read");
+        input
+    }
 }
 
 fn main() {
-    let n = input_integers()[0] as usize;
-    let mut stones = input_integers();
+    let (stdin, stdout) = (io::stdin(), io::stdout());
+    let mut scan = UnsafeScanner::new(stdin.lock());
+    let mut out = io::BufWriter::new(stdout.lock());
 
-    let mut num_one_stone = 0;
+    let n = scan.token::<usize>();
+    let mut stones = vec![0; n];
 
-    for stone in stones.iter() {
-        if stone == &1 {
-            num_one_stone += 1;
-        }
+    for i in 0..n {
+        stones[i] = scan.token::<i64>();
     }
 
-    if num_one_stone == n as i64 {
-        if n % 2 != 0 {
-            println!("cubelover");
-        } else {
-            println!("koosaga");
-        }
-    } else {
-        if num_one_stone > 0 && num_one_stone % 2 == 0 {
-            for stone in stones.iter_mut() {
-                if stone != &1 {
-                    *stone = 1;
-                    break;
-                }
-            }
-        }
-
-        let mut ret = 0;
-
-        for stone in stones.iter() {
-            ret ^= stone;
-        }
-    
-        if ret == 0 {
-            println!("cubelover");
-        } else {
-            println!("koosaga");
-        }
+    if stones.iter().all(|&x| x == 1) {
+        writeln!(out, "{}", if n % 2 == 1 { "cubelover" } else { "koosaga" }).unwrap();
+        return;
     }
+
+    let mut ret = 0;
+
+    for stone in stones {
+        ret ^= stone;
+    }
+
+    writeln!(out, "{}", if ret == 0 { "cubelover" } else { "koosaga" }).unwrap();
 }

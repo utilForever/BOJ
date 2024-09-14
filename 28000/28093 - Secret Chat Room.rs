@@ -67,20 +67,16 @@ fn gcd(first: i64, second: i64) -> i64 {
     }
 }
 
-fn multiply(x: i64, y: i64, modular: i64) -> i64 {
-    (x as i128 * y as i128 % modular as i128) as i64
-}
-
 fn pow(x: i64, mut y: i64, p: i64) -> i64 {
     let mut ret = 1;
     let mut piv = x % p;
 
     while y != 0 {
         if y & 1 != 0 {
-            ret = multiply(ret, piv, p);
+            ret = ret * piv % p;
         }
 
-        piv = multiply(piv, piv, p);
+        piv = piv * piv % p;
         y >>= 1;
     }
 
@@ -152,7 +148,7 @@ fn record(num: i64, values: &mut HashMap<i64, i64>) {
     let mut c = 0;
     let mut g = num;
 
-    let func = |x, c| (c + multiply(x, x, num)) % num;
+    let func = |x, c| (c + (x * x) % num) % num;
 
     loop {
         if g == num {

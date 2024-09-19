@@ -1,0 +1,17 @@
+ab#de|aaade
+abhde|fffde
+abhde|kl#de
+pphss|klrrr
+pvvvs|klwww
+-----+-----
+aaade|aaade
+fffde|f#hde
+kkkde|fhhde
+pppss|fqqqt
+#vvvs|uuutt
+-----+-----
+aaade|aaadd
+fffde|fffdj
+kkkde|kkk#j
+ppp#t|pppsj
+uuutt|uuuss

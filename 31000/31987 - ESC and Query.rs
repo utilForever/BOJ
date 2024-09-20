@@ -31,50 +31,89 @@ impl<R: io::BufRead> UnsafeScanner<R> {
             }
         }
     }
-}
 
-static MOD: i64 = 1_000_000_007;
-
-fn matrix_multiply(first: &[[i64; 4]; 4], second: &[[i64; 4]; 4], result: &mut [[i64; 4]; 4]) {
-    let mut temp = [[0; 4]; 4];
-
-    for i in 0..4 {
-        for j in 0..4 {
-            temp[i][j] = (first[i][0] * second[0][j]
-                        + first[i][1] * second[1][j]
-                        + first[i][2] * second[2][j]
-                        + first[i][3] * second[3][j]) % MOD;
-        }
-    }
-
-    for i in 0..4 {
-        for j in 0..4 {
-            result[i][j] = temp[i][j];
-        }
+    pub fn line(&mut self) -> String {
+        let mut input = String::new();
+        self.reader.read_line(&mut input).expect("Failed read");
+        input
     }
 }
 
-fn matrix_pow(mut matrix: [[i64; 4]; 4], mut n: usize) -> [[i64; 4]; 4] {
-    let mut ret = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]];
-    let mut temp = [[0; 4]; 4];
+const MOD: i64 = 1_000_000_007;
 
-    if n == 0 {
-        return ret;
+#[derive(Clone, Copy, Debug)]
+struct Complex {
+    real: i64,
+    imag: i64,
+}
+
+impl Complex {
+    fn new(real: i64, imag: i64) -> Self {
+        Complex {
+            real: real % MOD,
+            imag: imag % MOD,
+        }
     }
 
-    while n > 0 {
-        if n % 2 == 1 {
-            matrix_multiply(&ret, &matrix, &mut temp);
-            ret.copy_from_slice(&temp);
+    fn add(self, other: Complex) -> Complex {
+        Complex::new(
+            (self.real + other.real) % MOD,
+            (self.imag + other.imag) % MOD,
+        )
+    }
+
+    fn mul(self, other: Complex) -> Complex {
+        let real = (self.real * other.real - self.imag * other.imag) % MOD;
+        let imag = (self.real * other.imag + self.imag * other.real) % MOD;
+
+        Complex::new(real, imag)
+    }
+
+    fn div(self, other: Complex) -> Complex {
+        let denominator = (other.real * other.real + other.imag * other.imag) % MOD;
+        let denominator_inv = Complex::mod_inverse(denominator);
+
+        let real = (self.real * other.real + self.imag * other.imag) % MOD;
+        let imag = (self.imag * other.real - self.real * other.imag) % MOD;
+
+        Complex::new(real * denominator_inv % MOD, imag * denominator_inv % MOD)
+    }
+
+    fn mod_inverse(x: i64) -> i64 {
+        Complex::mod_pow(x, MOD - 2)
+    }
+
+    fn pow(mut self, mut exp: i64) -> Complex {
+        let mut ret = Complex::new(1, 0);
+
+        while exp > 0 {
+            if exp % 2 == 1 {
+                ret = ret.mul(self);
+            }
+
+            self = self.mul(self);
+            exp /= 2;
         }
 
-        matrix_multiply(&matrix, &matrix, &mut temp);
-        matrix.copy_from_slice(&temp);
-        
-        n /= 2;
+        ret
     }
 
-    ret
+    fn mod_pow(mut base: i64, mut exp: i64) -> i64 {
+        let mut ret = 1;
+
+        base %= MOD;
+
+        while exp > 0 {
+            if exp % 2 == 1 {
+                ret = ret * base % MOD;
+            }
+
+            base = base * base % MOD;
+            exp /= 2;
+        }
+
+        ret
+    }
 }
 
 fn main() {
@@ -83,28 +122,26 @@ fn main() {
     let mut out = io::BufWriter::new(stdout.lock());
 
     let q = scan.token::<i64>();
-    let coefficient = [[1, 0, -1, 0], [0, 1, 1, 0], [2, -2, 1, 0], [0, 0, 0, 0]];
 
     for _ in 0..q {
         let (i, j, k) = (
-            scan.token::<usize>(),
-            scan.token::<usize>(),
-            scan.token::<usize>(),
+            scan.token::<i64>(),
+            scan.token::<i64>(),
+            scan.token::<i64>(),
         );
 
-        let mut base = matrix_pow(coefficient, k);
-        base[3][0] = (base[0][0] + base[1][0] + base[2][0]) % MOD;
-        base[3][1] = (base[0][1] + base[1][1] + base[2][1]) % MOD;
-        base[3][2] = (base[0][2] + base[1][2] + base[2][2]) % MOD;
-        base[3][3] = 1;
+        let n = j - i + 1;
+        let unit = Complex::new(1, 2);
+        let m = Complex::new(-1, 0);
 
-        let mat_left = matrix_pow(base, i - 1);
-        let mat_right = matrix_pow(base, j);
-        let mut ret = (mat_right[3][2] - mat_left[3][2]) % MOD;
+        let a = unit.pow(i * k);
+        let r = unit.pow(k);
+        let d = r.add(m);
 
-        if ret < 0 {
-            ret += MOD;
-        }
+        let f_n = r.pow(n);
+        let numerator = a.mul(f_n.add(m));
+        let ret = numerator.div(d);
+        let ret = (ret.real % MOD + MOD) % MOD;
 
         writeln!(out, "{ret}").unwrap();
     }

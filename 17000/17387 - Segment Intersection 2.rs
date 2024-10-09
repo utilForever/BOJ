@@ -1,17 +1,42 @@
-use std::io;
+use io::Write;
+use std::{io, str};
 
-fn input_integers() -> Vec<i64> {
-    let mut s = String::new();
+pub struct UnsafeScanner<R> {
+    reader: R,
+    buf_str: Vec<u8>,
+    buf_iter: str::SplitAsciiWhitespace<'static>,
+}
 
-    io::stdin().read_line(&mut s).unwrap();
+impl<R: io::BufRead> UnsafeScanner<R> {
+    pub fn new(reader: R) -> Self {
+        Self {
+            reader,
+            buf_str: vec![],
+            buf_iter: "".split_ascii_whitespace(),
+        }
+    }
 
-    let values: Vec<i64> = s
-        .as_mut_str()
-        .split_whitespace()
-        .map(|s| s.parse().unwrap())
-        .collect();
+    pub fn token<T: str::FromStr>(&mut self) -> T {
+        loop {
+            if let Some(token) = self.buf_iter.next() {
+                return token.parse().ok().expect("Failed parse");
+            }
+            self.buf_str.clear();
+            self.reader
+                .read_until(b'\n', &mut self.buf_str)
+                .expect("Failed read");
+            self.buf_iter = unsafe {
+                let slice = str::from_utf8_unchecked(&self.buf_str);
+                std::mem::transmute(slice.split_ascii_whitespace())
+            }
+        }
+    }
 
-    values
+    pub fn line(&mut self) -> String {
+        let mut input = String::new();
+        self.reader.read_line(&mut input).expect("Failed read");
+        input
+    }
 }
 
 fn calculate_ccw(p1: (i64, i64), p2: (i64, i64), p3: (i64, i64)) -> i64 {
@@ -29,7 +54,6 @@ fn calculate_ccw(p1: (i64, i64), p2: (i64, i64), p3: (i64, i64)) -> i64 {
     }
 }
 
-// Reference: https://jason9319.tistory.com/358
 fn is_intersect(x: ((i64, i64), (i64, i64)), y: ((i64, i64), (i64, i64))) -> bool {
     let mut a = x.0;
     let mut b = x.1;
@@ -41,14 +65,10 @@ fn is_intersect(x: ((i64, i64), (i64, i64)), y: ((i64, i64), (i64, i64))) -> boo
 
     if ab == 0 && cd == 0 {
         if a > b {
-            let temp = b;
-            b = a;
-            a = temp;
+            std::mem::swap(&mut a, &mut b);
         }
         if c > d {
-            let temp = d;
-            d = c;
-            c = temp;
+            std::mem::swap(&mut c, &mut d);
         }
 
         return c <= b && a <= d;
@@ -57,19 +77,33 @@ fn is_intersect(x: ((i64, i64), (i64, i64)), y: ((i64, i64), (i64, i64))) -> boo
     ab <= 0 && cd <= 0
 }
 
+// Reference: https://jason9319.tistory.com/358
 fn main() {
-    let segment1 = input_integers();
-    let segment2 = input_integers();
+    let (stdin, stdout) = (io::stdin(), io::stdout());
+    let mut scan = UnsafeScanner::new(stdin.lock());
+    let mut out = io::BufWriter::new(stdout.lock());
 
-    println!(
-        "{}",
-        if is_intersect(
-            ((segment1[0], segment1[1]), (segment1[2], segment1[3])),
-            ((segment2[0], segment2[1]), (segment2[2], segment2[3]))
-        ) {
-            "1"
-        } else {
-            "0"
-        }
+    let (x1, y1, x2, y2) = (
+        scan.token::<i64>(),
+        scan.token::<i64>(),
+        scan.token::<i64>(),
+        scan.token::<i64>(),
     );
+    let (x3, y3, x4, y4) = (
+        scan.token::<i64>(),
+        scan.token::<i64>(),
+        scan.token::<i64>(),
+        scan.token::<i64>(),
+    );
+
+    writeln!(
+        out,
+        "{}",
+        if is_intersect(((x1, y1), (x2, y2)), ((x3, y3), (x4, y4))) {
+            1
+        } else {
+            0
+        }
+    )
+    .unwrap();
 }

@@ -1,17 +1,42 @@
-use std::io;
+use io::Write;
+use std::{io, str};
 
-fn input_integers() -> Vec<i64> {
-    let mut s = String::new();
+pub struct UnsafeScanner<R> {
+    reader: R,
+    buf_str: Vec<u8>,
+    buf_iter: str::SplitAsciiWhitespace<'static>,
+}
 
-    io::stdin().read_line(&mut s).unwrap();
+impl<R: io::BufRead> UnsafeScanner<R> {
+    pub fn new(reader: R) -> Self {
+        Self {
+            reader,
+            buf_str: vec![],
+            buf_iter: "".split_ascii_whitespace(),
+        }
+    }
 
-    let values: Vec<i64> = s
-        .as_mut_str()
-        .split_whitespace()
-        .map(|s| s.parse().unwrap())
-        .collect();
+    pub fn token<T: str::FromStr>(&mut self) -> T {
+        loop {
+            if let Some(token) = self.buf_iter.next() {
+                return token.parse().ok().expect("Failed parse");
+            }
+            self.buf_str.clear();
+            self.reader
+                .read_until(b'\n', &mut self.buf_str)
+                .expect("Failed read");
+            self.buf_iter = unsafe {
+                let slice = str::from_utf8_unchecked(&self.buf_str);
+                std::mem::transmute(slice.split_ascii_whitespace())
+            }
+        }
+    }
 
-    values
+    pub fn line(&mut self) -> String {
+        let mut input = String::new();
+        self.reader.read_line(&mut input).expect("Failed read");
+        input
+    }
 }
 
 fn process_dfs(
@@ -23,10 +48,12 @@ fn process_dfs(
 ) {
     visited[node] = true;
 
-    for next in graph[node].iter() {
-        if !visited[*next] {
-            process_dfs(graph, visited, stack, top, *next);
+    for &next in graph[node].iter() {
+        if visited[next] {
+            continue;
         }
+
+        process_dfs(graph, visited, stack, top, next);
     }
 
     stack[*top] = node;
@@ -44,37 +71,41 @@ fn process_dfs_rev(
     let len = scc_group.len();
     scc_group[len - 1].push(node);
 
-    for next in graph[node].iter() {
-        if !visited[*next] {
-            process_dfs_rev(scc_group, graph, visited, *next);
+    for &next in graph[node].iter() {
+        if visited[next] {
+            continue;
         }
+
+        process_dfs_rev(scc_group, graph, visited, next);
     }
 }
 
 fn main() {
-    let nums = input_integers();
-    let (v, e) = (nums[0] as usize, nums[1] as usize);
+    let (stdin, stdout) = (io::stdin(), io::stdout());
+    let mut scan = UnsafeScanner::new(stdin.lock());
+    let mut out = io::BufWriter::new(stdout.lock());
 
-    let mut graph = vec![Vec::new(); 10001];
-    let mut rev_graph = vec![Vec::new(); 10001];
+    let (v, e) = (scan.token::<usize>(), scan.token::<usize>());
+    let mut graph = vec![Vec::new(); v + 1];
+    let mut graph_rev = vec![Vec::new(); v + 1];
 
     for _ in 0..e {
-        let nums = input_integers();
-        let (a, b) = (nums[0] as usize, nums[1] as usize);
-
+        let (a, b) = (scan.token::<usize>(), scan.token::<usize>());
         graph[a].push(b);
-        rev_graph[b].push(a);
+        graph_rev[b].push(a);
     }
 
     let mut scc_group = Vec::new();
-    let mut visited = vec![false; 10001];
-    let mut stack = vec![0; 10001];
+    let mut visited = vec![false; v + 1];
+    let mut stack = vec![0; v + 1];
     let mut top = 0;
 
     for idx in 1..=v {
-        if !visited[idx] {
-            process_dfs(&graph, &mut visited, &mut stack, &mut top, idx);
+        if visited[idx] {
+            continue;
         }
+
+        process_dfs(&graph, &mut visited, &mut stack, &mut top, idx);
     }
 
     visited.fill(false);
@@ -83,25 +114,27 @@ fn main() {
         let node = stack[top - 1];
         top -= 1;
 
-        if !visited[node] {
-            scc_group.push(Vec::new());
-            process_dfs_rev(&mut scc_group, &rev_graph, &mut visited, node);
+        if visited[node] {
+            continue;
         }
+
+        scc_group.push(Vec::new());
+        process_dfs_rev(&mut scc_group, &graph_rev, &mut visited, node);
     }
 
     for group in scc_group.iter_mut() {
-        group.sort();
+        group.sort_unstable();
     }
 
-    scc_group.sort();
+    scc_group.sort_unstable();
 
-    println!("{}", scc_group.len());
+    writeln!(out, "{}", scc_group.len()).unwrap();
 
     for group in scc_group.iter() {
         for node in group.iter() {
-            print!("{} ", node);
+            write!(out, "{node} ").unwrap();
         }
 
-        println!("-1");
+        writeln!(out, "-1").unwrap();
     }
 }

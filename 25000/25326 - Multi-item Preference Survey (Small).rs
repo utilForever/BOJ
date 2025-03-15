@@ -1,5 +1,5 @@
 use io::Write;
-use std::{io, str, vec};
+use std::{io, str};
 
 pub struct UnsafeScanner<R> {
     reader: R,

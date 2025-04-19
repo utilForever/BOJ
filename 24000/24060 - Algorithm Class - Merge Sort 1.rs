@@ -31,78 +31,88 @@ impl<R: io::BufRead> UnsafeScanner<R> {
             }
         }
     }
+
+    pub fn all(&mut self) -> String {
+        let mut input = String::new();
+        self.reader.read_to_string(&mut input).expect("Failed read");
+        input
+    }
+
+    pub fn line(&mut self) -> String {
+        let mut input = String::new();
+        self.reader.read_line(&mut input).expect("Failed read");
+        input
+    }
 }
 
 fn merge_sort(
     arr: &mut Vec<i64>,
-    left: usize,
-    right: usize,
+    p: usize,
+    r: usize,
     k: usize,
-    save: &mut i64,
-    cnt_save: &mut usize,
+    cnt: &mut usize,
+    ret: &mut Option<i64>,
 ) {
-    if left >= right {
-        return;
+    if p < r {
+        let q = (p + r) / 2;
+
+        merge_sort(arr, p, q, k, cnt, ret);
+        merge_sort(arr, q + 1, r, k, cnt, ret);
+        merge(arr, p, q, r, k, cnt, ret);
     }
-
-    let mid = (left + right) / 2;
-
-    merge_sort(arr, left, mid, k, save, cnt_save);
-    merge_sort(arr, mid + 1, right, k, save, cnt_save);
-    merge(arr, left, mid, right, k, save, cnt_save);
 }
 
 fn merge(
     arr: &mut Vec<i64>,
-    left: usize,
-    mid: usize,
-    right: usize,
+    p: usize,
+    q: usize,
+    r: usize,
     k: usize,
-    save: &mut i64,
-    cnt_save: &mut usize,
+    cnt: &mut usize,
+    ret: &mut Option<i64>,
 ) {
-    let mut temp = vec![0; right - left + 1];
-    let mut i = left;
-    let mut j = mid + 1;
-    let mut t = 0;
+    let mut tmp = vec![0];
+    let mut i = p;
+    let mut j = q + 1;
+    let mut t = 1;
 
-    while i <= mid && j <= right {
+    while i <= q && j <= r {
         if arr[i] <= arr[j] {
-            temp[t as usize] = arr[i];
+            tmp.push(arr[i]);
             t += 1;
             i += 1;
         } else {
-            temp[t as usize] = arr[j];
+            tmp.push(arr[j]);
             t += 1;
             j += 1;
         }
     }
 
-    while i <= mid {
-        temp[t as usize] = arr[i];
+    while i <= q {
+        tmp.push(arr[i]);
         t += 1;
         i += 1;
     }
 
-    while j <= right {
-        temp[t as usize] = arr[j];
+    while j <= r {
+        tmp.push(arr[j]);
         t += 1;
         j += 1;
     }
 
-    i = left;
-    t = 0;
+    i = p;
+    t = 1;
 
-    while i <= right {
-        arr[i] = temp[t as usize];
-        *cnt_save += 1;
+    while i <= r {
+        arr[i] = tmp[t];
+        *cnt += 1;
 
-        if *cnt_save == k {
-            *save = arr[i];
+        if *cnt == k {
+            *ret = Some(arr[i]);
         }
 
-        t += 1;
         i += 1;
+        t += 1;
     }
 }
 
@@ -112,15 +122,20 @@ fn main() {
     let mut out = io::BufWriter::new(stdout.lock());
 
     let (n, k) = (scan.token::<usize>(), scan.token::<usize>());
-    let mut nums = vec![0; n];
-    let mut save = 0;
-    let mut cnt_save = 0;
+    let mut nums = vec![0; n + 1];
 
-    for i in 0..n {
+    for i in 1..=n {
         nums[i] = scan.token::<i64>();
     }
 
-    merge_sort(&mut nums, 0, n - 1, k, &mut save, &mut cnt_save);
+    let mut cnt = 0;
+    let mut ret = None;
 
-    writeln!(out, "{}", if cnt_save < k { -1 } else { save }).unwrap();
+    merge_sort(&mut nums, 1, n, k, &mut cnt, &mut ret);
+
+    if let Some(ret) = ret {
+        writeln!(out, "{ret}").unwrap();
+    } else {
+        writeln!(out, "-1").unwrap();
+    }
 }

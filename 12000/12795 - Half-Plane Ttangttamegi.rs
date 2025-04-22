@@ -134,7 +134,7 @@ impl KineticSegmentTree {
             .min(self.data[node * 2].compare(&self.data[node * 2 + 1], self.time));
     }
 
-    fn update(&mut self, pos: usize, val: Line, node: usize, start: usize, end: usize) {
+    fn _update(&mut self, pos: usize, val: Line, node: usize, start: usize, end: usize) {
         if pos < start || pos > end {
             return;
         }
@@ -146,8 +146,8 @@ impl KineticSegmentTree {
 
         let mid = (start + end) / 2;
 
-        self.update(pos, val.clone(), node * 2, start, mid);
-        self.update(pos, val, node * 2 + 1, mid + 1, end);
+        self._update(pos, val.clone(), node * 2, start, mid);
+        self._update(pos, val, node * 2 + 1, mid + 1, end);
 
         self.merge(node);
     }
@@ -230,7 +230,7 @@ fn main() {
     }
 
     let mut tree = KineticSegmentTree::new(stones.len());
-    tree.construct(&stones, -INF, 0, stones.len() - 1);
+    tree.construct(&stones, -2_000_000_000_000, 0, stones.len() - 1);
 
     queries.sort_by(|a, b| a.time.cmp(&b.time));
 

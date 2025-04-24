@@ -33,84 +33,168 @@ impl<R: io::BufRead> UnsafeScanner<R> {
     }
 }
 
-const INF: i64 = 1_000_000_000_000_000_000;
+const INF: i64 = 100_000_000_000_000_000;
 
-#[derive(Clone, Default)]
+#[derive(Clone, Copy, Eq, PartialEq, PartialOrd)]
 struct Line {
-    idx: usize,
     slope: i64,
     ret: i64,
 }
 
 impl Line {
     fn new(a: i64, b: i64) -> Self {
-        Self {
-            idx: 0,
-            slope: a,
-            ret: b,
-        }
+        Self { slope: a, ret: b }
     }
 
-    fn compare(&self, x: &Line) -> i64 {
-        if self.slope == x.slope {
+    fn compare(mut a: Line, mut b: Line) -> i64 {
+        if a.ret < b.ret || (a.ret == b.ret && a.slope < b.slope) {
+            std::mem::swap(&mut a, &mut b);
+        }
+
+        if a.slope >= b.slope {
             return INF;
         }
 
-        let mut up = x.ret - self.ret;
-        let mut down = self.slope - x.slope;
+        (a.ret - b.ret) / (b.slope - a.slope)
+    }
+}
 
-        if down < 0 {
-            up *= -1;
-            down *= -1;
+impl std::default::Default for Line {
+    fn default() -> Self {
+        Self {
+            slope: 0,
+            ret: -INF,
+        }
+    }
+}
+
+impl std::ops::Add for Line {
+    type Output = Self;
+
+    fn add(self, other: Self) -> Self {
+        Self {
+            slope: self.slope + other.slope,
+            ret: self.ret + other.ret,
+        }
+    }
+}
+
+impl std::cmp::Ord for Line {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        return self.ret.cmp(&other.ret);
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Node {
+    min_first: i64,
+    min_second: i64,
+    lazy: i64,
+    melt: i64,
+
+    max_left: Line,
+    max_right: Line,
+    sum: Line,
+    val: Line,
+}
+
+impl std::default::Default for Node {
+    fn default() -> Self {
+        Self {
+            min_first: INF,
+            min_second: INF,
+            lazy: -INF,
+            melt: INF,
+
+            max_left: Line::default(),
+            max_right: Line::default(),
+            sum: Line::default(),
+            val: Line::default(),
+        }
+    }
+}
+
+impl Node {
+    fn merge(mut left: Node, mut right: Node) -> Node {
+        let mut ret = Node::default();
+
+        ret.min_first = left.min_first.min(right.min_first);
+        ret.min_second = if ret.min_first == left.min_first {
+            left.min_second
+        } else {
+            left.min_first
+        }
+        .min(if ret.min_first == right.min_first {
+            right.min_second
+        } else {
+            right.min_first
+        });
+
+        if ret.min_first != left.min_first {
+            left.max_left.slope = 0;
+            left.max_right.slope = 0;
+            left.sum.slope = 0;
+            left.val.slope = 0;
         }
 
-        let intercept = if up <= 0 {
-            -(-up / down)
-        } else {
-            (up + down - 1) / down
-        };
-
-        if intercept <= 0 {
-            INF
-        } else {
-            intercept
+        if ret.min_first != right.min_first {
+            right.max_left.slope = 0;
+            right.max_right.slope = 0;
+            right.sum.slope = 0;
+            right.val.slope = 0;
         }
+
+        ret.max_left = left.max_left.max(left.sum + right.max_left);
+        ret.max_right = right.max_right.max(right.sum + left.max_right);
+        ret.sum = left.sum + right.sum;
+        ret.val = left.val.max(right.val).max(left.max_right + right.max_left);
+
+        ret.melt = Line::compare(ret.max_left, left.sum + right.max_left)
+            .min(Line::compare(ret.max_right, right.sum + left.max_right));
+        ret.melt = ret
+            .melt
+            .min(Line::compare(ret.val, left.val))
+            .min(Line::compare(ret.val, right.val))
+            .min(Line::compare(ret.val, left.max_right + right.max_left));
+        ret.melt = (ret.melt + ret.min_first).min(left.melt).min(right.melt);
+
+        ret
     }
 }
 
 struct KineticSegmentTree {
     size: usize,
-    data: Vec<Line>,
-    melt: Vec<i64>,
-    tag: Vec<bool>,
-    time: Vec<i64>,
-    intercept: Vec<i64>,
+    data: Vec<Node>,
 }
 
 impl KineticSegmentTree {
     pub fn new(n: usize) -> Self {
         let mut real_n = 1;
+
         while real_n < n {
             real_n *= 2;
         }
 
         Self {
             size: n,
-            data: vec![Line::default(); real_n * 4],
-            melt: vec![INF; real_n * 4],
-            tag: vec![false; real_n * 4],
-            time: vec![0; real_n * 4],
-            intercept: vec![0; real_n * 4],
+            data: vec![Node::default(); real_n * 4],
         }
     }
 
-    pub fn construct(&mut self, lines: &[Line], start: usize, end: usize) {
+    pub fn construct(&mut self, lines: &[i64], start: usize, end: usize) {
         self.construct_internal(lines, 1, start, end);
     }
 
-    fn construct_internal(&mut self, lines: &[Line], node: usize, start: usize, end: usize) {
+    fn construct_internal(&mut self, lines: &[i64], node: usize, start: usize, end: usize) {
         if start == end {
-            self.data[node] = lines[start].clone();
+            let line = Line::new(1, lines[start]);
+
+            self.data[node].max_left = line;
+            self.data[node].max_right = line;
+            self.data[node].sum = line;
+            self.data[node].val = line;
+            self.data[node].min_first = lines[start];
+
             return;
         }
 
@@ -119,57 +203,48 @@ impl KineticSegmentTree {
         self.construct_internal(lines, node * 2, start, mid);
         self.construct_internal(lines, node * 2 + 1, mid + 1, end);
 
-        self.merge(node);
+        self.data[node] = Node::merge(self.data[node * 2], self.data[node * 2 + 1]);
     }
 
-    fn merge(&mut self, node: usize) {
-        let left = self.data[node * 2].clone();
-        let right = self.data[node * 2 + 1].clone();
-
-        self.data[node] =
-            if left.ret > right.ret || (left.ret == right.ret && left.slope > right.slope) {
-                left.clone()
-            } else {
-                right.clone()
-            };
-        self.melt[node] = self.melt[node * 2]
-            .min(self.melt[node * 2 + 1])
-            .min(left.compare(&right));
-    }
-
-    fn propagate(&mut self, node: usize, start: usize, end: usize) {
-        if !self.tag[node] {
+    fn propagate(&mut self, node: usize) {
+        if self.data[node].lazy == -INF {
             return;
         }
 
-        self.data[node].ret += self.data[node].slope * self.time[node] + self.intercept[node];
-        self.melt[node] -= self.time[node];
+        if self.data[node].lazy >= self.data[node * 2].min_first {
+            let diff = self.data[node].lazy - self.data[node * 2].min_first;
 
-        if start == end {
-            self.tag[node] = false;
-            self.time[node] = 0;
-            self.intercept[node] = 0;
-            return;
+            self.data[node * 2].min_first = self.data[node].lazy;
+            self.data[node * 2].lazy = self.data[node * 2].lazy.max(self.data[node].lazy);
+            self.data[node * 2].melt -= diff;
+
+            self.data[node * 2].max_left.ret += self.data[node * 2].max_left.slope * diff;
+            self.data[node * 2].max_right.ret += self.data[node * 2].max_right.slope * diff;
+            self.data[node * 2].sum.ret += self.data[node * 2].sum.slope * diff;
+            self.data[node * 2].val.ret += self.data[node * 2].val.slope * diff;
         }
 
-        self.tag[node * 2] = true;
-        self.time[node * 2] += self.time[node];
-        self.intercept[node * 2] += self.intercept[node];
+        if self.data[node].lazy >= self.data[node * 2 + 1].min_first {
+            let diff = self.data[node].lazy - self.data[node * 2 + 1].min_first;
 
-        self.tag[node * 2 + 1] = true;
-        self.time[node * 2 + 1] += self.time[node];
-        self.intercept[node * 2 + 1] += self.intercept[node];
+            self.data[node * 2 + 1].min_first = self.data[node].lazy;
+            self.data[node * 2 + 1].lazy = self.data[node * 2 + 1].lazy.max(self.data[node].lazy);
+            self.data[node * 2 + 1].melt -= diff;
 
-        self.tag[node] = false;
-        self.time[node] = 0;
-        self.intercept[node] = 0;
+            self.data[node * 2 + 1].max_left.ret += self.data[node * 2 + 1].max_left.slope * diff;
+            self.data[node * 2 + 1].max_right.ret += self.data[node * 2 + 1].max_right.slope * diff;
+            self.data[node * 2 + 1].sum.ret += self.data[node * 2 + 1].sum.slope * diff;
+            self.data[node * 2 + 1].val.ret += self.data[node * 2 + 1].val.slope * diff;
+        }
+
+        self.data[node].lazy = -INF;
     }
 
-    fn add_intercept(&mut self, start: usize, end: usize, val: i64) {
-        self.add_intercept_internal(start, end, val, 1, 1, self.size);
+    fn update(&mut self, start: usize, end: usize, val: i64) {
+        self.update_internal(start, end, val, 1, 1, self.size);
     }
 
-    fn add_intercept_internal(
+    fn update_internal(
         &mut self,
         start: usize,
         end: usize,
@@ -178,48 +253,28 @@ impl KineticSegmentTree {
         node_start: usize,
         node_end: usize,
     ) {
-        self.propagate(node, node_start, node_end);
+        self.propagate(node);
 
-        if end < node_start || node_end < start {
+        if end < node_start || node_end < start || val <= self.data[node].min_first {
             return;
         }
 
-        if start <= node_start && node_end <= end {
-            self.tag[node] = true;
-            self.intercept[node] += val;
-            self.propagate(node, node_start, node_end);
-            return;
-        }
+        if start <= node_start
+            && node_end <= end
+            && val < self.data[node].min_second
+            && val <= self.data[node].melt
+        {
+            let diff = val - self.data[node].min_first;
 
-        let mid = (node_start + node_end) / 2;
+            self.data[node].max_left.ret += self.data[node].max_left.slope * diff;
+            self.data[node].max_right.ret += self.data[node].max_right.slope * diff;
+            self.data[node].sum.ret += self.data[node].sum.slope * diff;
+            self.data[node].val.ret += self.data[node].val.slope * diff;
 
-        self.add_intercept_internal(start, end, val.clone(), node * 2, node_start, mid);
-        self.add_intercept_internal(start, end, val, node * 2 + 1, mid + 1, node_end);
+            self.data[node].min_first = val;
+            self.data[node].lazy = self.data[node].lazy.max(val);
+            self.data[node].melt -= diff;
 
-        self.merge(node);
-    }
-
-    fn update(&mut self, start: usize, end: usize, val: Line) {
-        self.update_internal(start, end, val, 1, 1, self.size);
-    }
-
-    fn update_internal(
-        &mut self,
-        start: usize,
-        end: usize,
-        val: Line,
-        node: usize,
-        node_start: usize,
-        node_end: usize,
-    ) {
-        self.propagate(node, node_start, node_end);
-
-        if end < node_start || node_end < start {
-            return;
-        }
-
-        if start <= node_start && node_end <= end {
-            self.data[node] = val;
             return;
         }
 
@@ -228,48 +283,10 @@ impl KineticSegmentTree {
         self.update_internal(start, end, val.clone(), node * 2, node_start, mid);
         self.update_internal(start, end, val, node * 2 + 1, mid + 1, node_end);
 
-        self.merge(node);
+        self.data[node] = Node::merge(self.data[node * 2], self.data[node * 2 + 1]);
     }
 
-    fn heaten(&mut self, start: usize, end: usize, time: i64) {
-        self.heaten_internal(1, start, end, 1, self.size, time);
-    }
-
-    fn heaten_internal(
-        &mut self,
-        node: usize,
-        start: usize,
-        end: usize,
-        node_start: usize,
-        node_end: usize,
-        time: i64,
-    ) {
-        self.propagate(node, node_start, node_end);
-
-        if end < node_start || node_end < start {
-            return;
-        }
-
-        if start <= node_start && node_end <= end {
-            self.melt[node] -= 1;
-
-            if self.melt[node] > 0 {
-                self.tag[node] = true;
-                self.time[node] += 1;
-                self.propagate(node, node_start, node_end);
-                return;
-            }
-        }
-
-        let mid = (node_start + node_end) / 2;
-
-        self.heaten_internal(node * 2, start, end, node_start, mid, time);
-        self.heaten_internal(node * 2 + 1, start, end, mid + 1, node_end, time);
-
-        self.merge(node);
-    }
-
-    pub fn query(&mut self, start: usize, end: usize) -> Line {
+    pub fn query(&mut self, start: usize, end: usize) -> Node {
         self.query_internal(start, end, 1, 1, self.size)
     }
 
@@ -280,24 +297,22 @@ impl KineticSegmentTree {
         node: usize,
         node_start: usize,
         node_end: usize,
-    ) -> Line {
+    ) -> Node {
         if end < node_start || node_end < start {
-            return Line::default();
+            return Node::default();
         }
 
         if start <= node_start && node_end <= end {
-            return self.data[node].clone();
+            return self.data[node];
         }
+
+        self.propagate(node);
 
         let mid = (node_start + node_end) / 2;
-        let left = self.query_internal(node * 2, start, end, node_start, mid);
-        let right = self.query_internal(node * 2 + 1, start, end, mid + 1, node_end);
+        let left = self.query_internal(start, end, node * 2, node_start, mid);
+        let right = self.query_internal(start, end, node * 2 + 1, mid + 1, node_end);
 
-        if left.ret > right.ret {
-            left
-        } else {
-            right
-        }
+        Node::merge(left, right)
     }
 }
 
@@ -308,25 +323,28 @@ fn main() {
     let mut out = io::BufWriter::new(stdout.lock());
 
     let (n, q) = (scan.token::<usize>(), scan.token::<i64>());
-    let mut arr = vec![0; n];
+    let mut nums = vec![0; n + 1];
 
-    for i in 0..n {
-        arr[i] = scan.token::<i64>();
+    for i in 1..=n {
+        nums[i] = scan.token::<i64>();
     }
 
     let mut tree = KineticSegmentTree::new(n);
-    tree.construct(&arr, 1, n);
+    tree.construct(&nums, 1, n);
 
     for _ in 0..q {
-        let command = scan.token::<i64>();
+        let cmd = scan.token::<i64>();
 
-        if command == 0 {
-            let (l, r, x) = (scan.token::<usize>(), scan.token::<usize>(), scan.token::<i64>());
-            tree.query_max(l, r, x);
+        if cmd == 0 {
+            let (l, r, x) = (
+                scan.token::<usize>(),
+                scan.token::<usize>(),
+                scan.token::<i64>(),
+            );
+            tree.update(l, r, x);
         } else {
             let (l, r) = (scan.token::<usize>(), scan.token::<usize>());
-            let ret = tree.query(l, r);
-            writeln!(out, "{}", ret.ret.sum()).unwrap();
+            writeln!(out, "{}", tree.query(l, r).val.ret.max(0)).unwrap();
         }
     }
 }

@@ -1,5 +1,5 @@
 use io::Write;
-use std::{cmp, io, str};
+use std::{io, str};
 
 pub struct UnsafeScanner<R> {
     reader: R,
@@ -31,6 +31,18 @@ impl<R: io::BufRead> UnsafeScanner<R> {
             }
         }
     }
+
+    pub fn all(&mut self) -> String {
+        let mut input = String::new();
+        self.reader.read_to_string(&mut input).expect("Failed read");
+        input
+    }
+
+    pub fn line(&mut self) -> String {
+        let mut input = String::new();
+        self.reader.read_line(&mut input).expect("Failed read");
+        input
+    }
 }
 
 fn main() {
@@ -40,40 +52,45 @@ fn main() {
 
     let (n, t) = (scan.token::<usize>(), scan.token::<i64>());
     let mut photographs = vec![(0, 0); n];
-    let mut end_times = vec![0; n];
+    let mut times_end = vec![0; n];
 
     for i in 0..n {
         let (a, b) = (scan.token::<i64>(), scan.token::<i64>());
         photographs[i] = (a, b);
-        end_times[i] = b;
+        times_end[i] = b;
     }
 
-    photographs.sort();
-    end_times.sort();
+    photographs.sort_unstable();
+    times_end.sort_unstable();
 
-    let mut start_times = photographs.iter().map(|&val| val.0).collect::<Vec<_>>();
+    let mut times_start = photographs.iter().map(|&val| val.0).collect::<Vec<_>>();
 
     for i in 0..n {
-        let mut remain_time = end_times[i] - t;
-        let mut k = n as i64 - 1;
+        let mut time_remain = times_end[i] - t;
+        let mut k = n - 1;
 
         for j in (0..n).rev() {
-            if photographs[j].1 <= end_times[i] {
-                while k >= 0 && remain_time < photographs[k as usize].0 {
-                    remain_time = cmp::min(remain_time, start_times[k as usize]);
+            if photographs[j].1 <= times_end[i] {
+                while time_remain < photographs[k].0 {
+                    time_remain = time_remain.min(times_start[k]);
+
+                    if k == 0 {
+                        break;
+                    }
+
                     k -= 1;
                 }
 
-                if remain_time < photographs[j].0 {
+                if time_remain < photographs[j].0 {
                     writeln!(out, "no").unwrap();
                     return;
                 }
 
-                if remain_time < photographs[j].0 + t {
-                    start_times[j] = cmp::min(start_times[j], remain_time - t);
+                if time_remain < photographs[j].0 + t {
+                    times_start[j] = times_start[j].min(time_remain - t);
                 }
 
-                remain_time -= t;
+                time_remain -= t;
             }
         }
     }

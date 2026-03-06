@@ -191,12 +191,10 @@ fn main() {
     let mut out = io::BufWriter::new(stdout.lock());
 
     let (n, l) = (scan.token::<usize>(), scan.token::<usize>());
-    let mut matrix = vec![0; n * l];
+    let mut matrix = Vec::with_capacity(n * l);
 
-    for i in 0..n {
-        for j in 0..l {
-            matrix[i * l + j] = scan.token::<u64>();
-        }
+    for _ in 0..n * l {
+        matrix.push(ModInt::new(scan.token::<u64>(), MOD));
     }
 
     if 3 * n > l {
@@ -218,13 +216,12 @@ fn main() {
     }
 
     let pow_last = pow[n - 1];
-    let vec_random = rng.rands(MOD, n);
+    let vec_r = rng.rands(MOD, n);
     let mut sum_col = vec![ModInt::new(0, MOD); l];
 
     for i in 0..n {
         for j in 0..l {
-            sum_col[j] =
-                sum_col[j] + ModInt::new(vec_random[i], MOD) * ModInt::new(matrix[i * l + j], MOD);
+            sum_col[j] = sum_col[j] + ModInt::new(vec_r[i], MOD) * matrix[i * l + j];
         }
     }
 
@@ -236,8 +233,8 @@ fn main() {
         let mut sum_c = ModInt::new(0, MOD);
 
         for j in 0..n {
-            sum_b = sum_b + ModInt::new(matrix[i * l + n + j], MOD) * pow[j];
-            sum_c = sum_c + ModInt::new(matrix[i * l + 2 * n + j], MOD) * pow[j];
+            sum_b = sum_b + matrix[i * l + n + j] * pow[j];
+            sum_c = sum_c + matrix[i * l + 2 * n + j] * pow[j];
         }
 
         vec_b[i] = sum_b;
@@ -253,7 +250,7 @@ fn main() {
         }
 
         for j in 0..n {
-            right = right + ModInt::new(vec_random[j], MOD) * vec_c[j];
+            right = right + ModInt::new(vec_r[j], MOD) * vec_c[j];
         }
 
         if left != right {
@@ -265,14 +262,14 @@ fn main() {
         }
 
         for j in 0..n {
-            let mut x = vec_b[j] - ModInt::new(matrix[j * l + i + n], MOD);
+            let mut x = vec_b[j] - matrix[j * l + i + n];
             x = x * r_inv;
-            x = x + ModInt::new(matrix[j * l + i + 2 * n], MOD) * pow_last;
+            x = x + matrix[j * l + i + 2 * n] * pow_last;
             vec_b[j] = x;
 
-            let mut y = vec_c[j] - ModInt::new(matrix[j * l + i + 2 * n], MOD);
+            let mut y = vec_c[j] - matrix[j * l + i + 2 * n];
             y = y * r_inv;
-            y = y + ModInt::new(matrix[j * l + i + 3 * n], MOD) * pow_last;
+            y = y + matrix[j * l + i + 3 * n] * pow_last;
             vec_c[j] = y;
         }
     }

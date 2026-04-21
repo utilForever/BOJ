@@ -1,0 +1,2 @@
+0 0 0 :G >a ZaB >b ZbB >c ZcB >d ZdB >e ZeB >f ZfB >g ZgB >h ZhB >i ZiB >j ZjB >k ZkB >l ZlB >m ZmB :R >z ZzA <z JR :A 0 :B >z ZzC <z JB :C ZaD <a ZbD <b ZcD <c ZdD <d ZeD <e ZfD <f ZgD <g ZhD <h ZiD <i ZjD <j ZkD <k ZlD <l ZmD <m 0 :D >z ZzE <z JD :E ZaF <a ZbF <b ZcF <c ZdF <d ZeF <e ZfF <f ZgF <g ZhF <h ZiF <i ZjF <j ZkF <k ZlF <l ZmF <m 0 JG :F
+Q
